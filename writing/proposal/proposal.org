@@ -1,0 +1,28 @@
+#+TITLE: Project description
+#+TOC: nil
+
+The goal of the project is to create a model for the behaviour of zebrafish.
+This model should be able to predict/simulate the individual motion of an animal reacting to its environment (e.g. other fish, wall).
+It could be used to steer a virtual fish in a virtual reality environment, for example.
+
+We start with an existing model and refine it in three steps, each one removing assumptions thus creating a more flexible data-driven model.
+The models developed in the earlier steps serve as baselines for the more complicated ones.
+1. 
+    We start from the simple model published by Calovi et. all[1].
+    It is capable of simulating Rummy-nose tetra moving in a constrained space, including the interaction with one other fish and the boundary of the space.
+
+    The model consists in two parts, one that models the information processing and one that models the gliding phase.
+    The first part governs the direction and strength of the movement, during the gliding phase the fish moves in a straight line with decaying velocity.
+    This gliding is described by a physical model with parameters taken from the data.
+
+    We need to adapt the parameters of this model to the movement of zebrafish.
+    This is possible because both animals exhibit similar movement patterns, i.e. both move in discrete bursts.
+2. 
+    We will then enhance the model by adding a time-dependent receptive field to the information processing model that includes information about the perception of the fish.
+3.
+    As a next step, the reactive field should be replaced by a more general approach, using recurrent neural networks.
+    This corresponds to reverse engineering the algorithm used by the animals which maps their perceptions to their movement.
+4.
+    Finally, this approach can be generalised to higher number of neighbours (with possible non-linear interaction) and to more complicated movement patterns (e.g. varying kick duration).
+
+[1]: Calovi et al (2017). Disentangling and modeling interactions in fish with burst-and-coast swimming
