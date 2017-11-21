@@ -20,7 +20,7 @@ The models developed in the earlier steps serve as baselines for the more compli
 2. 
     We will then enhance the model by adding a time-dependent receptive field to the information processing model that includes information about the perception of the fish.
 3.
-    As a next step, the reactive field should be replaced by a more general approach, using recurrent neural networks.
+    As a next step, the receptive field should be replaced by a more general approach, using recurrent neural networks.
     This corresponds to reverse engineering the algorithm used by the animals which maps their perceptions to their movement.
 4.
     Finally, this approach can be generalised to higher number of neighbours (with possible non-linear interaction) and to more complicated movement patterns (e.g. varying kick duration).
