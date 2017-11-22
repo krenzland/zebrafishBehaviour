@@ -3,6 +3,7 @@ import numpy as np
 import pandas as pd
 import scipy.stats
 import scipy.signal as signal
+import scipy.interpolate as interp
 from numba import jit
 
 from util import unit_vector, angle_between, angled_vector, sub_angles
@@ -26,14 +27,34 @@ def clean_dataset(df, drop_inf=True):
    # Drop duplicate columns
     df.drop(['time_f1', 'neighbor_distance_f1'], axis=1, inplace=True)
     df.rename(columns={'time_f0': 'time', 'neighbor_distance_f0': 'neighbor_distance'}, inplace=True)
+    
+    # Also drop frames with 0 time difference. Otherwise this destroys the data smoothing!
+    dt = np.hstack( (np.ediff1d(df['time']), float('inf')) )
+    df = df[dt != 0.0]
     if drop_inf:
         df = df.replace([np.inf, -np.inf], np.nan).dropna()
         # TODO: If the frame index would be correct, this would create wrong skips.
         # Maybe need to insert interpolated data for dropped frames.
-        df.index = range(0, len(df['time']))
+    df.index = range(0, len(df['time']))
     return df
 
-# ----- Smoothing -----
+# ----- Smoothing and resampling -----
+# Sometimes we have a dataset that is not evenly spaced. this is adjusted by this function here.
+def resample_col(data, oldTime, newTime):
+    interpolator = interp.CubicSpline(oldTime, data)
+    return pd.Series(interpolator(newTime), index=np.arange(0, len(newTime)))
+
+def resample_dataset(df):
+    oldTime = df['time'].values
+    df['time'] = pd.Series(oldTime, index=np.arange(0, len(oldTime)))
+    
+    newTime = np.linspace(np.min(oldTime), np.max(oldTime), len(oldTime))
+    # Resample each row.
+    df = df.apply((lambda col: resample_col(col, oldTime, newTime)), axis=0)
+    # Adjust time again
+    df['time'] = pd.Series(newTime, index=np.arange(0, len(newTime)))
+    return df
+
 def smooth_vector(x):    
     # TODO: Double check whether window_length correspond to a reasonable timeframe!
     degree = 3
@@ -196,7 +217,7 @@ def get_wall_influence(orientation, point, center, radius):
     distance = np.linalg.norm(clostest_point - point)
     wall_angle = angle_between(np.array([-1,0]), clostest_point - point)
     # Orientation is calculated w.r.t. to [1, 0] from tracking, possible bug.
-    relative_angle = sub_angles(wall_angle, -orientation)
+    relative_angle = sub_angles(wall_angle, orientation)
     return clostest_point, distance, relative_angle
 
 def calc_angles(kick, pos_0, pos_1, angles_0, angles_1, vel_0, wall_fun, fish_mapping, verbose=False):
@@ -313,6 +334,7 @@ def main():
     df = clean_dataset(df)
     print("Cleaned data.")
     #print(df.describe())
+    df = resample_dataset(df)
     df = smooth_dataset(df)
     print("Smoothed velocity and acceleration!")
     df = add_status(df, SWIMMING_THRESHOLD)
