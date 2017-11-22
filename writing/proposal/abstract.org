@@ -1,17 +1,15 @@
 #+TITLE: Abstract
 #+TOC: nil
-The goal of the project is to create a model for the behaviour of zebrafish.
-This model should be able to predict/simulate the individual motion of an animal reacting to its environment (e.g. other fish, wall).
+The goal of the project is to compare different models for the behavior of zebrafish.
+The models should be able to predict and simulate the individual motion of an animal reacting to its environment (e.g. another fish, wall).
 It can be used to steer a fish in a virtual reality environment, for example.
 
-We start from a simple force based model.[1]
+We start with the evaluation of a simple force based model.
 The model consists in two parts, one that models the information processing and one that models the gliding phase.
 This gliding is described by a physical model with parameters taken from the data.
 
-We will then enhance the model by adding a time-dependent receptive field to the information processing model that includes information about the perception of the fish.
+We will then enhance the model by adding a time-dependent (linear) receptive field to the information processing model that includes information about the perception of the fish.
 This adds a 'memory' to the model.
 
-As a next step, the receptive field will be replaced by a more general approach, using recurrent neural networks.
-This is a strict generalisation of the previous model and includes possible non-linear reactions and time-dependencies.
-
-[1]: Calovi et al (2017). Disentangling and modeling interactions in fish with burst-and-coast swimming
+As a next step, the receptive field will be replaced by a recurrent neural network.
+This is a strict generalization of the previous model and includes possible non-linear reactions and time-dependencies.
