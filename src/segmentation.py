@@ -311,7 +311,7 @@ def calc_angles_df(df, wall_fun):
         angles.append(calc_angles(kick, pos1, pos0, df['angle_f1'], df['angle_f0'], df['speed_smooth_f1'], wall_fun, fish_mapping=('f1', 'f0'), verbose=False))
 
     kick_columns = [ 'fish_id', 'heading_change', 'duration', 'length', 'max_vel']
-    social_columns = ['neighbor_distance', 'neighbor_angle', 'geomentric_leader', 'viewing_angle_ltf', 'viewing_angle_ftl', 'rel_orientation']
+    social_columns = ['neighbor_distance', 'neighbor_angle', 'geometric_leader', 'viewing_angle_ltf', 'viewing_angle_ftl', 'rel_orientation']
     wall_columns = [ 'wall_distance_f0', 'wall_angle_f0', 'wall_distance_f1', 'wall_angle_f1']
     columns = kick_columns + social_columns + wall_columns
     df_kicks = pd.DataFrame(data=angles, columns=columns)
