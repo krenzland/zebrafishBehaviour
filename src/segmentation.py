@@ -144,34 +144,63 @@ def add_status(df, treshold):
 ACCELERATING = 1
 GLIDING = -1
 
-@jit(nopython=True)
+# In [9]: acc, time
+# Out[9]: (array([ 1,  1, -1, -1]), array([0, 1, 2, 3]))
+
+# In [10]: segmentation(acc, time)
+# Out[10]: [(0, 0, 0, 1), (0, 2, 2, 1), (2, 3, 1, -1)]
+
 def segmentation(acc, time):
+    THRESHOLD = 0.08 #s; treshold for kick duration
     phases = (acc > 0.0) * ACCELERATING
-    # TODO (maybe): fuse nearby accelerating events
-    
     events = []
     
-    # (idx_start, idx_end, duration, type)    
     idx_start, idx_end, duration, etype = (0, -1, -1, -1)
     cur_sign = -1 * np.sign(acc[0]) # start with correct event
         
     for i, a in enumerate(acc):
         if np.sign(a) != cur_sign or i == (len(acc) -1):        
             # push old event
-            idx_end = i - 1
-            duration = time[i - 1] - time[idx_start]
-            events.append((idx_start, idx_end, duration, cur_sign))
+            idx_end = i
+            duration = time[i] - time[idx_start]
+            # Ignore short phases, they are probably just some noise.
+            if duration < THRESHOLD: # and cur_sign == GLIDING:
+                etype = -1 * cur_sign
+            else:
+                etype = cur_sign
+            events.append((idx_start, idx_end, duration, etype))
             
             # start new event
             cur_sign *= -1
             idx_start = i                
-        
-    return events[1:] # skip first invalid element start = end = 0   
+
+    clean_events = []
+    # - Remove short phases of same time (from the removal of short phases)
+    for i in range(0, len(events)): # skip first invalid element start = end = 0   
+        idx_start, idx_end, duration, etype = events[i]
+        if i > 0:
+            old_idx_start, _, old_duration, old_etype = clean_events[-1]
+            if etype == old_etype:
+                # Fuse both events
+                clean_events[-1] = (old_idx_start, idx_end, old_duration + duration, etype)
+                continue
+                
+        clean_events.append(events[i])
+
+    # - Remove phases that are too short (i.e. < THRESHOLD)
+    #clean_events = [ e for e in clean_events if e[2] > THRESHOLD] 
+    # TODO: REmove, we do it in summarise kicks currently
+
+    # Skip first, possibly invalid event!
+    return clean_events[1:]
 
 def summarise_kick(phase, pos, border_distance):
     start = phase[0][0]
     end = phase[1][1]
     duration = phase[0][2] + phase[1][2]
+
+    if phase[0][2] < 0.08:
+        return None
     
     pos_start = np.array([ pos[0][start], pos[1][start] ])
     pos_end = np.array([ pos[0][end], pos[1][end] ])
@@ -198,7 +227,9 @@ def summarise_kicks(pos, acc, border_distance, time):
     for i in range(begin, len(phases)//2):
         # A phase consists in a acceleration + gliding phase
         phase = phases[i*2 : i*2+2]
-        kicks.append(summarise_kick(phase, pos, border_distance))
+        kick = summarise_kick(phase, pos, border_distance)
+        if kick is not None:
+            kicks.append(kick)
         
     # Convert back to frame information (needed for angle calc!)    
     # Some headings are zero. This'll lead to problems later!
@@ -215,7 +246,7 @@ def summarise_kicks(pos, acc, border_distance, time):
 def get_wall_influence(orientation, point, center, radius):
     clostest_point = center + radius * unit_vector(point - center)
     distance = np.linalg.norm(clostest_point - point)
-    wall_angle = angle_between(np.array([-1,0]), clostest_point - point)
+    wall_angle = angle_between(np.array([1,0]), clostest_point - point)
     # Orientation is calculated w.r.t. to [1, 0] from tracking, possible bug.
     relative_angle = sub_angles(wall_angle, orientation)
     return clostest_point, distance, relative_angle
@@ -238,7 +269,7 @@ def calc_angles(kick, pos_0, pos_1, angles_0, angles_1, vel_0, wall_fun, fish_ma
     dist_norm = np.linalg.norm(dist)
     dist_angle = angle_between(x_axis, dist)
 
-    # Calculate relevant angles and focal fish
+    # Calculate relevant angles. Note that the viewing angle is NOT symmetric.
     viewing_angle_0t1 = sub_angles(dist_angle, angles_0[start])
     viewing_angle_1t0 = sub_angles(-dist_angle, angles_1[start])
     
@@ -261,8 +292,7 @@ def calc_angles(kick, pos_0, pos_1, angles_0, angles_1, vel_0, wall_fun, fish_ma
     kick_max_vel = np.max(vel_0[start:end])
     heading_change = sub_angles(angles_0[end], angles_0[start])
     
-    # Wall distance and angle
-    #def get_wall_influence(orientation, point, center, radius):
+    # Estimate wall information.
     clostest_point_0, wall_distance_0, wall_angle_0 = wall_fun(angles_0[start], pos_f0)
     clostest_point_1, wall_distance_1, wall_angle_1 = wall_fun(angles_1[start], pos_f1)
 
