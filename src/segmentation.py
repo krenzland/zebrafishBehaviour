@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import numpy as np
 import pandas as pd
+from itertools import product
 import scipy.stats
 import scipy.signal as signal
 import scipy.interpolate as interp
@@ -14,10 +15,9 @@ from util import unit_vector, angle_between, angled_vector, sub_angles
 def load_and_join(csv_path0, csv_path1):
     df_fish0 = pd.read_csv(csv_path0)
     df_fish1 = pd.read_csv(csv_path1)
-    cols = ['frame', 'acceleration', 'angle', 'aX', 'aY',
-            'border_distance', 'neighbor_distance',
-            'speed', 'vX', 'vY', 'x', 'y',
-            'time']
+    cols = ['frame', 'acceleration', 'angle', 'angular_a', 'angular_v',
+            'border_distance', 'neighbor_distance', 'speed', 'speed_smooth', 'vX',
+            'vY', 'x', 'y', 'time']
     df_fish0.columns = cols
     df_fish1.columns = cols
     df_total = df_fish0.set_index('frame').join(df_fish1, lsuffix='_f0', rsuffix='_f1')
@@ -27,6 +27,8 @@ def clean_dataset(df, drop_inf=True):
    # Drop duplicate columns
     df.drop(['time_f1', 'neighbor_distance_f1'], axis=1, inplace=True)
     df.rename(columns={'time_f0': 'time', 'neighbor_distance_f0': 'neighbor_distance'}, inplace=True)
+    
+    df['neighbor_distance'] = 0.0 # TODO: Remove this column entirely.
     
     # Also drop frames with 0 time difference. Otherwise this destroys the data smoothing!
     dt = np.hstack( (np.ediff1d(df['time']), float('inf')) )
@@ -242,14 +244,35 @@ def summarise_kicks(pos, acc, border_distance, time):
 
 # ---- Angles -----
 
+# TODO: Remove possible dead code here.
 @jit
-def get_wall_influence(orientation, point, center, radius):
+def get_wall_influence_circle(orientation, point, center, radius):
     clostest_point = center + radius * unit_vector(point - center)
     distance = np.linalg.norm(clostest_point - point)
     wall_angle = angle_between(np.array([1,0]), clostest_point - point)
     # Orientation is calculated w.r.t. to [1, 0] from tracking, possible bug.
     relative_angle = sub_angles(wall_angle, orientation)
     return clostest_point, distance, relative_angle
+
+def get_wall_influence(orientation, point):
+    walls = np.array([ np.array( [ 30,   0]),
+                       np.array( [  0,  30]),
+                       np.array( [-30,   0]),
+                       np.array( [  0, -30])])
+
+    def dist_point_to_line(point, line):
+        # This only works for horizontal/vertical lines!
+        assert(line[0] == 0.0 or line[1] == 0.0)
+        if(line[0] != 0.0):
+            return np.array([line[0] - point[0], 0.0])
+        else:
+            return np.array([0.0, line[1] - point[1]])
+    
+    distances = np.array([ np.linalg.norm(dist_point_to_line(point, wall)) for wall in walls ])
+    wall_angles = np.array([ angle_between(np.array([1,0]), wall) for wall in walls] )
+    # Orientation is calculated w.r.t. to [1, 0] from tracking, possible bug.
+    relative_angles = sub_angles(wall_angles, orientation)
+    return distances, relative_angles
 
 def calc_angles(kick, pos_0, pos_1, angles_0, angles_1, vel_0, wall_fun, fish_mapping, verbose=False):
     x_axis = np.array([1, 0]) # Used as a common reference for angles.
@@ -293,29 +316,12 @@ def calc_angles(kick, pos_0, pos_1, angles_0, angles_1, vel_0, wall_fun, fish_ma
     heading_change = sub_angles(angles_0[end], angles_0[start])
     
     # Estimate wall information.
-    clostest_point_0, wall_distance_0, wall_angle_0 = wall_fun(angles_0[start], pos_f0)
-    clostest_point_1, wall_distance_1, wall_angle_1 = wall_fun(angles_1[start], pos_f1)
-
-    if verbose:
-        print(f"Max swimming velocity {kick_max_vel}")
-        print("Start = {}, end {}, duration = {}".format(start, end, duration))
-        print("Trajectories: f0 = {}, f1 = {}".format(unit_vector(traj_f0), unit_vector(traj_f1)))
-        print("x/y: f0 = {}, f1 = {}".format(pos_f0, pos_f1))
-        print("Distance = {}, norm = {}, data = {}".format(dist, np.linalg.norm(dist), df_total['neighbor_distance'][start]))
-
-        print("Viewing angles: 0->1 = {:3.2f}°, 1->0 = {:3.2f}°".format(
-            np.rad2deg(viewing_angle_0t1), np.rad2deg(viewing_angle_1t0)))
-        print("Geometric leader is {}.".format(geometric_leader))
-        print("Relative orientation = {:3.2f}°".format(np.rad2deg(rel_orientation)))
-        print("Heading = {}, kick_len = {}".format(unit_vector(traj_kick), np.linalg.norm(traj_kick)))
-        
-        print(f"Wall distance: 0 = {wall_distance_0}, 1 = {wall_distance_1}")
-        print(f"Wall angle: 0 = {np.rad2deg(wall_angle_0)}, 1 = {np.rad2deg(wall_angle_1)}")
-   
+    wall_distance_0, wall_angle_0 = get_wall_influence(angles_0[start], pos_f0)
+    wall_distance_1, wall_angle_1 = get_wall_influence(angles_1[start], pos_f1)
 
     kick_information = np.array( [ fish_mapping[0], heading_change, duration, kick_len,  kick_max_vel] )
     social_information = np.array([ dist_norm, dist_angle, geometric_leader, viewing_angle_leader, viewing_angle_follower, rel_orientation ])
-    wall_information = np.array( [ wall_distance_0, wall_angle_0, wall_distance_1, wall_angle_1 ])
+    wall_information = np.concatenate( (wall_distance_0, wall_angle_0, wall_distance_1, wall_angle_1) )
 
     return np.concatenate((kick_information, social_information, wall_information))
 
@@ -342,7 +348,7 @@ def calc_angles_df(df, wall_fun):
 
     kick_columns = [ 'fish_id', 'heading_change', 'duration', 'length', 'max_vel']
     social_columns = ['neighbor_distance', 'neighbor_angle', 'geometric_leader', 'viewing_angle_ltf', 'viewing_angle_ftl', 'rel_orientation']
-    wall_columns = [ 'wall_distance_f0', 'wall_angle_f0', 'wall_distance_f1', 'wall_angle_f1']
+    wall_columns = [ f"wall_{type}{wall}_{id}" for id, type, wall in product( ['f0', 'f1'], ['distance', 'angle'],[0,1,2,3] )]
     columns = kick_columns + social_columns + wall_columns
     df_kicks = pd.DataFrame(data=angles, columns=columns)
     
@@ -350,13 +356,14 @@ def calc_angles_df(df, wall_fun):
 
 def main():
     # Constants
-    BODY_LENGTH = 0.64 # cm
+    BODY_LENGTH = 1.0 # cm
     SWIMMING_THRESHOLD = 0.5/BODY_LENGTH
     WALL_CENTER = np.array([15,15])
     WALL_RADIUS = 14
-    csv_path_0 = '../data/raw/zebrafish26.01.2017_fish0.csv'
-    csv_path_1 = '../data/raw/zebrafish26.01.2017_fish1.csv'
-    csv_kicks = '../data/processed/kicks26.01.2017.csv'
+    csv_path_0 = '../data/raw/trial2_fish0.csv'
+    csv_path_1 = '../data/raw/trial2_fish1.csv'
+    csv_cleaned = '../data/processed/cleaned_guy.csv'
+    csv_kicks = '../data/processed/kicks_guy.csv'
 
     
     df = load_and_join(csv_path_0, csv_path_1)
@@ -376,6 +383,7 @@ def main():
 
     print("Calculated angles.")
     print(f"The kicks_df has the following columns now:{df_kicks.columns}")
+    df.to_csv(csv_cleaned, index=False)
     df_kicks.to_csv(csv_kicks, index=False)
 
 if __name__ == '__main__':
