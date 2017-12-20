@@ -255,24 +255,40 @@ def get_wall_influence_circle(orientation, point, center, radius):
     return clostest_point, distance, relative_angle
 
 def get_wall_influence(orientation, point):
-    walls = np.array([ np.array( [ 30,   0]),
-                       np.array( [  0,  30]),
-                       np.array( [-30,   0]),
-                       np.array( [  0, -30])])
+    # We have 4 walls, wall_0/2 on the x-axis and wall_1/3 on the y-axis.
+    wall_axes = np.array( [ 0, 1, 0, 1 ] )
+    distance_offset = np.array( [0, 0, 30, 30])
+    wall_angles = np.deg2rad(np.array( [0, 90, 180, -90] ))
 
-    def dist_point_to_line(point, line):
-        # This only works for horizontal/vertical lines!
-        assert(line[0] == 0.0 or line[1] == 0.0)
-        if(line[0] != 0.0):
-            return np.array([line[0] - point[0], 0.0])
-        else:
-            return np.array([0.0, line[1] - point[1]])
-    
-    distances = np.array([ np.linalg.norm(dist_point_to_line(point, wall)) for wall in walls ])
-    wall_angles = np.array([ angle_between(np.array([1,0]), wall) for wall in walls] )
+    def dist_to_wall(point, wall_id):
+        axis = wall_axes[wall_id]
+        return np.abs(distance_offset[wall_id] - [point[axis]] )
+
+    distances = np.array([ dist_to_wall(point, i) for i in range(4) ]).reshape(-1)
     # Orientation is calculated w.r.t. to [1, 0] from tracking, possible bug.
     relative_angles = sub_angles(wall_angles, orientation)
     return distances, relative_angles
+   
+
+# def get_wall_influence(orientation, point):
+#     walls = np.array([ np.array( [ 30,   0]),
+#                        np.array( [  0,  30]),
+#                        np.array( [-30,   0]),
+#                        np.array( [  0, -30])])
+
+#     def dist_point_to_line(point, line):
+#         # This only works for horizontal/vertical lines!
+#         assert(line[0] == 0.0 or line[1] == 0.0)
+#         if(line[0] != 0.0):
+#             return np.array([line[0] - point[0], 0.0])
+#         else:
+#             return np.array([0.0, line[1] - point[1]])
+    
+#     distances = np.array([ np.linalg.norm(dist_point_to_line(point, wall)) for wall in walls ])
+#     wall_angles = np.array([ angle_between(np.array([1,0]), wall) for wall in walls] )
+#     # Orientation is calculated w.r.t. to [1, 0] from tracking, possible bug.
+#     relative_angles = sub_angles(wall_angles, orientation)
+#     return distances, relative_angles
 
 def calc_angles(kick, pos_0, pos_1, angles_0, angles_1, vel_0, wall_fun, fish_mapping, verbose=False):
     x_axis = np.array([1, 0]) # Used as a common reference for angles.
@@ -360,8 +376,8 @@ def main():
     SWIMMING_THRESHOLD = 0.5/BODY_LENGTH
     WALL_CENTER = np.array([15,15])
     WALL_RADIUS = 14
-    csv_path_0 = '../data/raw/trial2_fish0.csv'
-    csv_path_1 = '../data/raw/trial2_fish1.csv'
+    csv_path_0 = '../data/raw/trial3_fish0.csv'
+    csv_path_1 = '../data/raw/trial3_fish1.csv'
     csv_cleaned = '../data/processed/cleaned_guy.csv'
     csv_kicks = '../data/processed/kicks_guy.csv'
 
