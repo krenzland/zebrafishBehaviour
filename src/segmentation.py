@@ -254,10 +254,12 @@ def get_wall_influence_circle(orientation, point, center, radius):
     relative_angle = sub_angles(wall_angle, orientation)
     return clostest_point, distance, relative_angle
 
-def get_wall_influence(orientation, point):
+def get_wall_influence(orientation, point, bounding_box):
+    # Bounding box here is xMin, xMax, yMin, yMax
+    xMin, xMax, yMin, yMax = bounding_box
     # We have 4 walls, wall_0/2 on the x-axis and wall_1/3 on the y-axis.
     wall_axes = np.array( [ 0, 1, 0, 1 ] )
-    distance_offset = np.array( [0, 0, 30, 30])
+    distance_offset = np.array( [xMin, yMin, xMax, yMax])
     wall_angles = np.deg2rad(np.array( [0, 90, 180, -90] ))
 
     def dist_to_wall(point, wall_id):
@@ -269,28 +271,7 @@ def get_wall_influence(orientation, point):
     relative_angles = sub_angles(wall_angles, orientation)
     return distances, relative_angles
    
-
-# def get_wall_influence(orientation, point):
-#     walls = np.array([ np.array( [ 30,   0]),
-#                        np.array( [  0,  30]),
-#                        np.array( [-30,   0]),
-#                        np.array( [  0, -30])])
-
-#     def dist_point_to_line(point, line):
-#         # This only works for horizontal/vertical lines!
-#         assert(line[0] == 0.0 or line[1] == 0.0)
-#         if(line[0] != 0.0):
-#             return np.array([line[0] - point[0], 0.0])
-#         else:
-#             return np.array([0.0, line[1] - point[1]])
-    
-#     distances = np.array([ np.linalg.norm(dist_point_to_line(point, wall)) for wall in walls ])
-#     wall_angles = np.array([ angle_between(np.array([1,0]), wall) for wall in walls] )
-#     # Orientation is calculated w.r.t. to [1, 0] from tracking, possible bug.
-#     relative_angles = sub_angles(wall_angles, orientation)
-#     return distances, relative_angles
-
-def calc_angles(kick, pos_0, pos_1, angles_0, angles_1, vel_0, wall_fun, fish_mapping, verbose=False):
+def calc_angles(kick, pos_0, pos_1, angles_0, angles_1, vel_0, bounding_box, fish_mapping, verbose=False):
     x_axis = np.array([1, 0]) # Used as a common reference for angles.
     
     start, end, duration, heading, kick_len, _ = kick
@@ -332,8 +313,8 @@ def calc_angles(kick, pos_0, pos_1, angles_0, angles_1, vel_0, wall_fun, fish_ma
     heading_change = sub_angles(angles_0[end], angles_0[start])
     
     # Estimate wall information.
-    wall_distance_0, wall_angle_0 = get_wall_influence(angles_0[start], pos_f0)
-    wall_distance_1, wall_angle_1 = get_wall_influence(angles_1[start], pos_f1)
+    wall_distance_0, wall_angle_0 = get_wall_influence(angles_0[start], pos_f0, bounding_box)
+    wall_distance_1, wall_angle_1 = get_wall_influence(angles_1[start], pos_f1, bounding_box)
 
     kick_information = np.array( [ fish_mapping[0], heading_change, duration, kick_len,  kick_max_vel] )
     social_information = np.array([ dist_norm, dist_angle, geometric_leader, viewing_angle_leader, viewing_angle_follower, rel_orientation ])
@@ -343,7 +324,8 @@ def calc_angles(kick, pos_0, pos_1, angles_0, angles_1, vel_0, wall_fun, fish_ma
 
 # ---- Putting it all together -----
     
-def calc_angles_df(df, wall_fun):
+def calc_angles_df(df, bounding_box):
+    
     pos0 = (df['x_f0'], df['y_f0'])
     pos1 = (df['x_f1'], df['y_f1'])
     border_distance0 =  df['border_distance_f0'].values
@@ -357,10 +339,10 @@ def calc_angles_df(df, wall_fun):
     
     angles = []
     for kick in kicks0:
-        angles.append(calc_angles(kick, pos0, pos1, df['angle_f0'], df['angle_f1'], df['speed_smooth_f0'], wall_fun, fish_mapping=('f0', 'f1'), verbose=False))
+        angles.append(calc_angles(kick, pos0, pos1, df['angle_f0'], df['angle_f1'], df['speed_smooth_f0'], bounding_box, fish_mapping=('f0', 'f1'), verbose=False))
     
     for kick in kicks1:
-        angles.append(calc_angles(kick, pos1, pos0, df['angle_f1'], df['angle_f0'], df['speed_smooth_f1'], wall_fun, fish_mapping=('f1', 'f0'), verbose=False))
+        angles.append(calc_angles(kick, pos1, pos0, df['angle_f1'], df['angle_f0'], df['speed_smooth_f1'], bounding_box, fish_mapping=('f1', 'f0'), verbose=False))
 
     kick_columns = [ 'fish_id', 'heading_change', 'duration', 'length', 'max_vel']
     social_columns = ['neighbor_distance', 'neighbor_angle', 'geometric_leader', 'viewing_angle_ltf', 'viewing_angle_ftl', 'rel_orientation']
@@ -381,7 +363,6 @@ def main():
     csv_cleaned = '../data/processed/cleaned_guy.csv'
     csv_kicks = '../data/processed/kicks_guy.csv'
 
-    
     df = load_and_join(csv_path_0, csv_path_1)
     print("Loading and joining done.")
     df = clean_dataset(df)
@@ -394,8 +375,13 @@ def main():
     print("Found active and passive swimming phases.")
     print(f"The data-frame has the following columns now:{df.columns}")
 
-    wall_fun = lambda orientation, point: get_wall_influence(orientation, point, WALL_CENTER, WALL_RADIUS)
-    df_kicks = calc_angles_df(df, wall_fun)
+
+    # Calculate bounding box for rectangular arena.
+    bounding_box = (min(df['x_f0'].min(), df['x_f1'].min()), max(df['x_f0'].max(), df['x_f1'].max()), 
+                    min(df['y_f0'].min(), df['y_f1'].min()), max(df['y_f0'].max(), df['y_f1'].max()))
+    
+    
+    df_kicks = calc_angles_df(df, bounding_box)
 
     print("Calculated angles.")
     print(f"The kicks_df has the following columns now:{df_kicks.columns}")
