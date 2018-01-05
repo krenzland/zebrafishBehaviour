@@ -196,24 +196,31 @@ def segmentation(acc, time):
     # Skip first, possibly invalid event!
     return clean_events[1:]
 
-def summarise_kick(phase, pos, border_distance):
+def summarise_kick(phase, pos, status):
     start = phase[0][0]
     end = phase[1][1]
     duration = phase[0][2] + phase[1][2]
 
+    # Discard kick if acceleration phase is too short.
     if phase[0][2] < 0.08:
         return None
-    
+
     pos_start = np.array([ pos[0][start], pos[1][start] ])
     pos_end = np.array([ pos[0][end], pos[1][end] ])
 
+    # Discard kick if it contains stopping.
+    if np.any(status[start:end] == 'stopping'):
+        print('Stopping occured!')
+        return None
+
+    # Kick is now a valid kick.
     traj_kick = pos_end - pos_start
     heading = unit_vector(traj_kick)
     kick_len = np.linalg.norm(traj_kick)
    
-    return start, end, duration, heading, kick_len, border_distance
+    return start, end, duration, heading, kick_len
 
-def summarise_kicks(pos, acc, border_distance, time):
+def summarise_kicks(pos, acc, status, time):
     phases = segmentation(acc, time)
     # If heading is zero (no current kick) need to estimate traj. differently!
     
@@ -226,21 +233,17 @@ def summarise_kicks(pos, acc, border_distance, time):
     print(f"Begin={begin}")    
     
     kicks = []
+    discarded = 0
     for i in range(begin, len(phases)//2):
         # A phase consists in a acceleration + gliding phase
         phase = phases[i*2 : i*2+2]
-        kick = summarise_kick(phase, pos, border_distance)
+        kick = summarise_kick(phase, pos, status)
         if kick is not None:
             kicks.append(kick)
-        
-    # Convert back to frame information (needed for angle calc!)    
-    # Some headings are zero. This'll lead to problems later!
-    headings = np.zeros( (len(acc), 2) )
-    for k in kicks:
-        start, end, _, heading, _, _ = k
-        headings[start:end] = heading
-        
-    return kicks, headings
+        else:
+            discarded += 1
+    print(f'Removed {discarded} kicks.') 
+    return kicks
 
 # ---- Angles -----
 
@@ -274,7 +277,7 @@ def get_wall_influence(orientation, point, bounding_box):
 def calc_angles(kick, pos_0, pos_1, angles_0, angles_1, vel_0, bounding_box, fish_mapping, verbose=False):
     x_axis = np.array([1, 0]) # Used as a common reference for angles.
     
-    start, end, duration, heading, kick_len, _ = kick
+    start, end, duration, heading, kick_len = kick
     
     pos_f0 = np.array([ pos_0[0][start], pos_0[1][start] ])
     pos_f1 = np.array([ pos_1[0][start], pos_1[1][start] ])
@@ -325,16 +328,14 @@ def calc_angles(kick, pos_0, pos_1, angles_0, angles_1, vel_0, bounding_box, fis
 # ---- Putting it all together -----
     
 def calc_angles_df(df, bounding_box):
-    
     pos0 = (df['x_f0'], df['y_f0'])
     pos1 = (df['x_f1'], df['y_f1'])
-    border_distance0 =  df['border_distance_f0'].values
-    border_distance1 =  df['border_distance_f1'].values
     acc_smooth0 = df['acceleration_smooth_f0'].values
     acc_smooth1 = df['acceleration_smooth_f1'].values
+    status = df['status'].values
     time = df['time'].values
-    kicks0, _ = summarise_kicks(pos0, acc_smooth0, border_distance0, time)
-    kicks1, _ = summarise_kicks(pos1, acc_smooth1, border_distance1, time)
+    kicks0 = summarise_kicks(pos0, acc_smooth0, status, time)
+    kicks1 = summarise_kicks(pos1, acc_smooth1, status, time)
     print("Summarised kicks.")
     
     angles = []
@@ -356,8 +357,6 @@ def main():
     # Constants
     BODY_LENGTH = 1.0 # cm
     SWIMMING_THRESHOLD = 0.5/BODY_LENGTH
-    WALL_CENTER = np.array([15,15])
-    WALL_RADIUS = 14
     csv_path_0 = '../data/raw/trial3_fish0.csv'
     csv_path_1 = '../data/raw/trial3_fish1.csv'
     csv_cleaned = '../data/processed/cleaned_guy.csv'
@@ -375,12 +374,9 @@ def main():
     print("Found active and passive swimming phases.")
     print(f"The data-frame has the following columns now:{df.columns}")
 
-
     # Calculate bounding box for rectangular arena.
     bounding_box = (min(df['x_f0'].min(), df['x_f1'].min()), max(df['x_f0'].max(), df['x_f1'].max()), 
                     min(df['y_f0'].min(), df['y_f1'].min()), max(df['y_f0'].max(), df['y_f1'].max()))
-    
-    
     df_kicks = calc_angles_df(df, bounding_box)
 
     print("Calculated angles.")
