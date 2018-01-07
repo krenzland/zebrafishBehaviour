@@ -200,6 +200,7 @@ def summarise_kick(phase, pos, status):
     start = phase[0][0]
     end = phase[1][1]
     duration = phase[0][2] + phase[1][2]
+    gliding_duration = phase[1][2]
 
     # Discard kick if acceleration phase is too short.
     if phase[0][2] < 0.08:
@@ -218,7 +219,7 @@ def summarise_kick(phase, pos, status):
     heading = unit_vector(traj_kick)
     kick_len = np.linalg.norm(traj_kick)
    
-    return start, end, duration, heading, kick_len
+    return start, end, duration, gliding_duration, heading, kick_len
 
 def summarise_kicks(pos, acc, status, time):
     phases = segmentation(acc, time)
@@ -277,7 +278,7 @@ def get_wall_influence(orientation, point, bounding_box):
 def calc_angles(kick, pos_0, pos_1, angles_0, angles_1, vel_0, bounding_box, fish_mapping, verbose=False):
     x_axis = np.array([1, 0]) # Used as a common reference for angles.
     
-    start, end, duration, heading, kick_len = kick
+    start, end, duration, gliding_duration, heading, kick_len = kick
     
     pos_f0 = np.array([ pos_0[0][start], pos_0[1][start] ])
     pos_f1 = np.array([ pos_1[0][start], pos_1[1][start] ])
@@ -313,13 +314,14 @@ def calc_angles(kick, pos_0, pos_1, angles_0, angles_1, vel_0, bounding_box, fis
     kick_len = np.linalg.norm(traj_kick)
     kick_heading = angle_between(x_axis, traj_kick)
     kick_max_vel = np.max(vel_0[start:end])
+    end_vel = vel_0[end]
     heading_change = sub_angles(angles_0[end], angles_0[start])
     
     # Estimate wall information.
     wall_distance_0, wall_angle_0 = get_wall_influence(angles_0[start], pos_f0, bounding_box)
     wall_distance_1, wall_angle_1 = get_wall_influence(angles_1[start], pos_f1, bounding_box)
 
-    kick_information = np.array( [ fish_mapping[0], heading_change, duration, kick_len,  kick_max_vel] )
+    kick_information = np.array( [ fish_mapping[0], heading_change, duration, gliding_duration, kick_len,  kick_max_vel, end_vel] )
     social_information = np.array([ dist_norm, dist_angle, geometric_leader, viewing_angle_leader, viewing_angle_follower, rel_orientation ])
     wall_information = np.concatenate( (wall_distance_0, wall_angle_0, wall_distance_1, wall_angle_1) )
 
@@ -345,7 +347,7 @@ def calc_angles_df(df, bounding_box):
     for kick in kicks1:
         angles.append(calc_angles(kick, pos1, pos0, df['angle_f1'], df['angle_f0'], df['speed_smooth_f1'], bounding_box, fish_mapping=('f1', 'f0'), verbose=False))
 
-    kick_columns = [ 'fish_id', 'heading_change', 'duration', 'length', 'max_vel']
+    kick_columns = [ 'fish_id', 'heading_change', 'duration', 'gliding_duration', 'length', 'max_vel', 'end_vel']
     social_columns = ['neighbor_distance', 'neighbor_angle', 'geometric_leader', 'viewing_angle_ltf', 'viewing_angle_ftl', 'rel_orientation']
     wall_columns = [ f"wall_{type}{wall}_{id}" for id, type, wall in product( ['f0', 'f1'], ['distance', 'angle'],[0,1,2,3] )]
     columns = kick_columns + social_columns + wall_columns
