@@ -7,9 +7,9 @@ def unit_vector(v):
     return v/np.linalg.norm(v)
 
 def vector_in_direction(angle):
-        x_axis = np.array([-1.0, 0.0]) # right hand coordinate system
-        rotation_matrix = np.array([ [np.cos(angle), -np.sin(angle)], [np.sin(angle), np.cos(angle)] ]) 
-        return rotation_matrix @ x_axis
+    x_axis = np.array([-1.0, 0.0]) # right hand coordinate system
+    rotation_matrix = np.array([ [np.cos(angle), -np.sin(angle)], [np.sin(angle), np.cos(angle)] ]) 
+    return rotation_matrix @ x_axis
 
 class WallModel:
     angular_map = {'calovi': lambda angle, p1, p2: np.sin(angle) * (1 + p1 * np.cos(2*angle) + p2*np.cos(4*angle) ),
@@ -29,8 +29,11 @@ class WallModel:
         self.params = self.params_map[self.angular_model]
 
         # Unfitted versions
-        self.wall_force_ = lambda dist, decay: np.exp(-(dist/decay)**2 )
-        self.wall_repulsion_ = self.angular_map[self.angular_model]
+        self._wall_force = lambda dist, decay: np.exp(-(dist/decay)**2 )
+        self._wall_repulsion = self.angular_map[self.angular_model]
+
+        # Initialize fitted versions.
+        self.set_params(self.params)
     
     def evaluate_raw(self, xdata, *params):
         self.set_params(np.array(params))
@@ -38,21 +41,67 @@ class WallModel:
     
     def set_params(self, params):
         self.params = params
-        self.wall_force = lambda dist: self.wall_force_(dist, params[1])
-        self.wall_repulsion = lambda angle: self.wall_repulsion_(angle, *params[2:])
+        self.wall_force = lambda dist: self._wall_force(dist, params[1])
+        self.wall_repulsion = lambda angle: self._wall_repulsion(angle, *params[2:])
         self.scale = params[0]
         
     def __call__(self, radius, angle):
         # Sum over all four walls.
         return np.sum(self.scale * self.wall_force(radius) * self.wall_repulsion(angle), axis=0)
 
+def even_fun(angle, *weights):
+    result = 1.0
+    for i, weight in enumerate(weights):
+        result += weight * np.cos((i+1) * angle)
+    return result
+
+def odd_fun(angle, *weights):
+    result = 0.0
+    for i, weight in enumerate(weights):
+        result += weight * np.sin((i+1) * angle)
+    return result
+
 class SocialModel:
-    def __init__(self):
-        self.social_model = lambda distance, viewing_angle, relative_angle: 0.0
+    def __init__(self, num_fourier=2):
+        self.num_fourier = num_fourier
+        # TODO: Find better initial values.
+        params = np.hstack((np.array([0.3, 2.0,1.0]), np.array([1.0] * 3), \
+                                 np.zeros(num_fourier * 4)+1))
+        # Raw functions
+        self._f_att = lambda dist, p1, p2, s: s * (dist - p1)/(1 + (dist/p2)**2)
+        self._f_ali = lambda dist, p1, p2, s: s * (dist + p1) * np.exp(-(dist/p2)**2)
+        
+        # Initialize fitted versions.
+        self.set_params(params)
+                                
+    def evaluate_raw(self, xdata, *params):
+       self.set_params(np.array(params)) 
+       return self.__call__(xdata[0], xdata[1], xdata[2])
+    
+    def set_params(self, params):
+        self.params = params
 
+        # Attraction
+        self.f_att = lambda dist: self._f_att(dist, *self.params[0:3])
+        self.o_att = lambda a: odd_fun(a, *self._get_params_slice(0))
+        self.e_att = lambda a: even_fun(a, *self._get_params_slice(1))
+
+        # Alignment
+        self.f_ali = lambda dist: self._f_ali(dist, *self.params[3:6])
+        self.o_ali = lambda a: odd_fun(a, *self._get_params_slice(2))
+        self.e_ali = lambda a: even_fun(a, *self._get_params_slice(3))
+        
     def __call__(self, distance, viewing_angle, relative_angle):
-        return self.social_model(distance, viewing_angle, relative_angle)
+        attraction = self.f_att(distance) * self.o_att(viewing_angle) * \
+                     self.e_att(relative_angle)
+        alignment = self.f_ali(distance) * self.o_ali(relative_angle) * \
+                    self.e_ali(viewing_angle)
+        return attraction + alignment
 
+    def _get_params_slice(self, num_fun):
+        offset = 5 + num_fun * self.num_fourier
+        return self.params[offset:offset+self.num_fourier]
+ 
 class Calovi:
     def __init__(self, wall_model, social_model=None):
         self.position = np.array([15.0, 15.0])
