@@ -313,8 +313,9 @@ def calc_angles(kick, pos_0, pos_1, angles_0, angles_1, vel_0, bounding_box, fis
     traj_kick = np.array([ pos_0[0][end], pos_0[1][end] ]) - pos_f0
     kick_len = np.linalg.norm(traj_kick)
     kick_heading = angle_between(x_axis, traj_kick)
-    kick_max_vel = np.max(vel_0[start:end])
-    end_vel = vel_0[end]
+    # TODO: Fix potential off by one error here.
+    kick_max_vel = np.max(vel_0[start:end+1])
+    end_vel = vel_0[end]#np.min(vel_0[start:end])
     heading_change = sub_angles(angles_0[end], angles_0[start])
     
     # Estimate wall information.

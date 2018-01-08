@@ -2,14 +2,12 @@
 import dill as pickle
 import numpy as np
 
+from util import add_angles, angled_vector, clip_angle, unit_vector
+from segmentation import get_wall_influence
+
 def unit_vector(v):
     '''Returns a unit vector.'''
     return v/np.linalg.norm(v)
-
-def vector_in_direction(angle):
-    x_axis = np.array([-1.0, 0.0]) # right hand coordinate system
-    rotation_matrix = np.array([ [np.cos(angle), -np.sin(angle)], [np.sin(angle), np.cos(angle)] ]) 
-    return rotation_matrix @ x_axis
 
 class WallModel:
     angular_map = {'calovi': lambda angle, p1, p2: np.sin(angle) * (1 + p1 * np.cos(2*angle) + p2*np.cos(4*angle) ),
@@ -103,62 +101,101 @@ class SocialModel:
         return self.params[offset:offset+self.num_fourier]
  
 class Calovi:
-    def __init__(self, wall_model, social_model=None):
+    def __init__(self, wall_model, social_model):
+        # TODO: Use correct bbox, for now this is good enough probably.
+        self.bounding_box = (0, 30, 0, 30)
+
         self.position = np.array([15.0, 15.0])
         self.heading = 0 # radians
         self.time = 0
+        self.time_after_kick = 0.0
+        self.end_position = self.position
 
         self.wall_distance, self.wall_angle = 0, 0
         self.neigh_distance, self.neigh_viewing_angle, self.neigh_relative_angle = 0, 0, 0
 
-        if social_model is None:
-            social_model = lambda distance, viewing_angle, relative_angle: 0.0
         self.wall_model = wall_model
         self.social_model = social_model
 
-    def get_new_heading(self):
-        heading_strength = 0.0 # radians, TODO: Find parameter, use formula 6 for it!
-        random_heading = np.random.normal(loc=0.0, scale=1.0)
+    def get_heading_change(self):
+        heading_strength = 0.2 # radians, TODO: Find parameter, use formula 6 for it!
+        gaussian = np.random.normal(loc=0.0, scale=1.0)
 
-        wall_heading = self.wall_model(distance, angle)
+        wall_heading = self.wall_model(self.wall_distance, self.wall_angle)
         social_heading = self.social_model(self.neigh_distance, self.neigh_viewing_angle, self.neigh_relative_angle)
         
         alpha = 2.0/3.0 # Controls random movement strength near wall, value from Calovi not our data!
-        wall_force = np.min(self.wall_model.wall_force(self.wall_distance))
-        new_heading = self.heading + heading_strength * (1 - wall_force) * random_heading + wall_heading + social_heading
-        if new_heading > np.pi:
-            new_heading -= 2 * np.pi
-        if new_heading < np.pi:
-            new_heading += 2 * np.pi
+        wall_force = np.min(self.wall_model.wall_force(self.wall_distance)) # Weakest wall influence
+        random_heading = heading_strength * ( 1- alpha * wall_force) * gaussian
+        
+        heading_change = self.heading + random_heading + wall_heading + social_heading
 
-        return new_heading
+        return clip_angle(heading_change)
 
-    def step(self):
+    def kick_model(self):
         peak_speed = 5 # cm/s
-        kick_length = 0.5
-        velocity_decay_time = 0.8 #s
-        # We could theoretically capture kick_time from data.
-        # The three preceeding variables are sufficient to capture the entire motion though.
-        # Doing it this way follows the description of Calovi's paper.
+        kick_duration = 0.5 # s
+        velocity_decay_time = 0.84179403 # estimated from our data.
+        return peak_speed, kick_duration, velocity_decay_time
 
-        # TODO: Double check formula
-        kick_duration = -1 * (np.log((peak_speed * velocity_decay_time - kick_length)/(peak_speed * velocity_decay_time)) / (velocity_decay_time))
+    def is_inside_arena(self, position):
+        x_min, x_max, y_min, y_max = self.bounding_box
+        return position[0] > x_min and position[0] < x_max and \
+            position[1] > y_min and position[1] < y_max
+    
+    def kick(self):
+        peak_speed, self.kick_duration, self.velocity_decay_time = self.kick_model()
+        self.kick_length = peak_speed * self.velocity_decay_time * \
+                      (1 - np.exp(-self.kick_duration/self.velocity_decay_time))
+        self.position_before_kick = self.position
+        self.time_before_kick = self.time
+        self.time_after_kick = self.time_before_kick + self.kick_duration
 
-        self.time += kick_duration
-        self.heading = self.get_new_heading()
+        MAX_TRIALS = 1000
+        is_valid_kick = False
+        trials = 0
+        while not is_valid_kick:
+            trials += 1
+            # If our model gets stuck, we need a large, random angle change.
+            if trials > MAX_TRIALS:
+                print("MAX TRIALS reached! Changing to uniform heading!")
+                heading_change = np.random.uniform(low=-np.pi, high=np.pi)
+            else:
+                heading_change = self.get_heading_change()
+            self.heading = add_angles(self.heading, heading_change)
+            self.end_position = self.position + self.kick_length * angled_vector(self.heading) 
+            is_valid_kick = self.is_inside_arena(self.end_position)
+        
+    def step(self, time):
+        assert(time > self.time)
+        if self.time_after_kick <= time:
+            # First advance to end of current kick.
+            self.position = self.end_position
+            time = self.time_after_kick
+            self.time = time
+            # Then calculate new kick.
+            self.kick()
+            # Then move in direction of the new kick.
 
-        self.position += kick_length * vector_in_direction(self.heading)
-        return self.position
-
+        time_diff = time - self.time_before_kick
+        # We interpolate between the old and new position.
+        drag_coeff = (1 - np.exp(-time_diff/self.velocity_decay_time)) / \
+                    (1 - np.exp(-self.kick_duration/self.velocity_decay_time))
+        new_position = self.position_before_kick + \
+                       self.kick_length * drag_coeff * angled_vector(self.heading) 
+        self.position = new_position
+        self.time = time
+        return time, self.heading, self.position
 
 def main():
     with open('calovi_wall.model', 'rb') as f:
         wall_model = pickle.load(f)
-    social_model = SocialModel()
+    with open('calovi_social.model', 'rb') as f:
+        social_model = pickle.load(f)
     model = Calovi(wall_model=wall_model, social_model=social_model)
     
-    for i in range(0,100):
-        step = model.step()
+    for i in range(1,50):
+        step = model.step(0.25*i)
         #model.heading = model.get_new_heading()
         print(step)
         print(np.rad2deg(model.heading))
