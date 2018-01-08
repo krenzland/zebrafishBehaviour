@@ -1,13 +1,26 @@
 #!/usr/bin/env python3
 import dill as pickle
 import numpy as np
+import matplotlib.pyplot as plt
+from matplotlib import animation
 
 from util import add_angles, angled_vector, clip_angle, unit_vector
 from segmentation import get_wall_influence
 
-def unit_vector(v):
-    '''Returns a unit vector.'''
-    return v/np.linalg.norm(v)
+class KickModel:
+    def __init__(self, peak_speed_model, kick_duration_model, velocity_decay_time):
+        self.peak_speed_model = peak_speed_model
+        self.kick_duration_model = kick_duration_model
+        self.velocity_decay_time = velocity_decay_time
+    
+    def get_peak_speed(self):
+        return self.peak_speed_model.sample()[0][0,0]
+    
+    def get_kick_duration(self):
+        return self.kick_duration_model.sample()[0][0,0]
+    
+    def get_velocity_decay_time(self):
+        return self.velocity_decay_time
 
 class WallModel:
     angular_map = {'calovi': lambda angle, p1, p2: np.sin(angle) * (1 + p1 * np.cos(2*angle) + p2*np.cos(4*angle) ),
@@ -101,50 +114,56 @@ class SocialModel:
         return self.params[offset:offset+self.num_fourier]
  
 class Calovi:
-    def __init__(self, wall_model, social_model):
+    def __init__(self, kick_model, wall_model, social_model):
         # TODO: Use correct bbox, for now this is good enough probably.
         self.bounding_box = (0, 30, 0, 30)
 
-        self.position = np.array([15.0, 15.0])
+        self.position = np.array([5.0, 5.0])
         self.heading = 0 # radians
         self.time = 0
         self.time_after_kick = 0.0
         self.end_position = self.position
 
-        self.wall_distance, self.wall_angle = 0, 0
+        self.wall_distances, self.wall_angles = 0, 0
         self.neigh_distance, self.neigh_viewing_angle, self.neigh_relative_angle = 0, 0, 0
 
+        self.kick_model = kick_model
         self.wall_model = wall_model
         self.social_model = social_model
 
     def get_heading_change(self):
-        heading_strength = 0.2 # radians, TODO: Find parameter, use formula 6 for it!
+        heading_strength = 0.4 # radians, TODO: Find parameter, use formula 6 for it!
         gaussian = np.random.normal(loc=0.0, scale=1.0)
 
-        wall_heading = self.wall_model(self.wall_distance, self.wall_angle)
+        wall_heading = self.wall_model(self.wall_distances, self.wall_angles)
+        #print(f"Wall heading = {np.rad2deg(wall_heading)}")
         social_heading = self.social_model(self.neigh_distance, self.neigh_viewing_angle, self.neigh_relative_angle)
         
         alpha = 2.0/3.0 # Controls random movement strength near wall, value from Calovi not our data!
-        wall_force = np.min(self.wall_model.wall_force(self.wall_distance)) # Weakest wall influence
+        wall_force = np.min(self.wall_model.wall_force(self.wall_distances)) # Weakest wall influence
         random_heading = heading_strength * ( 1- alpha * wall_force) * gaussian
         
         heading_change = self.heading + random_heading + wall_heading + social_heading
 
         return clip_angle(heading_change)
 
-    def kick_model(self):
-        peak_speed = 5 # cm/s
-        kick_duration = 0.5 # s
-        velocity_decay_time = 0.84179403 # estimated from our data.
-        return peak_speed, kick_duration, velocity_decay_time
-
     def is_inside_arena(self, position):
         x_min, x_max, y_min, y_max = self.bounding_box
         return position[0] > x_min and position[0] < x_max and \
             position[1] > y_min and position[1] < y_max
     
+    def update_environment(self):
+        self.wall_distances, self.wall_angles = get_wall_influence(self.heading, self.position, \
+                                                                    self.bounding_box)
+    
     def kick(self):
-        peak_speed, self.kick_duration, self.velocity_decay_time = self.kick_model()
+        # First we need to update all distances angles.
+        self.update_environment()
+        
+        peak_speed = self.kick_model.get_peak_speed()
+        self.kick_duration = self.kick_model.get_kick_duration()
+        self.velocity_decay_time = self.kick_model.get_velocity_decay_time()
+
         self.kick_length = peak_speed * self.velocity_decay_time * \
                       (1 - np.exp(-self.kick_duration/self.velocity_decay_time))
         self.position_before_kick = self.position
@@ -186,19 +205,52 @@ class Calovi:
         self.position = new_position
         self.time = time
         return time, self.heading, self.position
+    
+def add_to_buffer(buffer, value):
+    buffer_local = np.roll(buffer, shift=-1)
+    buffer_local[-1] = value
+    np.copyto(dst=buffer, src=buffer_local)
+    return buffer
+
+def animate(model, n_frames, filename):
+     # Set up initial values for animation.
+    fig = plt.figure(figsize=(10,10))
+    ax = plt.axes(xlim=(0, 30), ylim=(0, 30))
+    lines0, = ax.plot([], [], c='red', label='our fish')
+    ax.legend(loc='upper right')
+
+    # Set up animation buffers.
+    visible_steps = 10
+    past_x0 = np.zeros(visible_steps) + 5
+    past_y0 = np.zeros(visible_steps) + 5
+
+    def init():
+        lines0.set_data([], [])
+        return lines0, 
+
+    def animate(i):
+        _, _, (x0, y0) = model.step((i+1) * 0.1)
+
+        add_to_buffer(past_x0, x0)
+        add_to_buffer(past_y0, y0)
+
+        lines0.set_data(past_x0, past_y0)
+
+        return lines0,
+
+    anim = animation.FuncAnimation(fig, animate, init_func=init,
+                                   frames=n_frames, interval=100, blit=True)
+    anim.save(filename)
 
 def main():
+    with open('calovi_kick.model', 'rb') as f:
+        kick_model = pickle.load(f)
     with open('calovi_wall.model', 'rb') as f:
         wall_model = pickle.load(f)
     with open('calovi_social.model', 'rb') as f:
         social_model = pickle.load(f)
-    model = Calovi(wall_model=wall_model, social_model=social_model)
-    
-    for i in range(1,50):
-        step = model.step(0.25*i)
-        #model.heading = model.get_new_heading()
-        print(step)
-        print(np.rad2deg(model.heading))
+    model = Calovi(kick_model=kick_model, wall_model=wall_model, social_model=social_model)
+    animate(model, 500, 'wall_animation.mp4')
 
 if __name__ == '__main__':
     main()
