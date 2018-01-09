@@ -140,7 +140,7 @@ class Calovi:
         social_heading = self.social_model(self.neigh_distance, self.neigh_viewing_angle, self.neigh_relative_angle)
         
         alpha = 2.0/3.0 # Controls random movement strength near wall, value from Calovi not our data!
-        wall_force = np.min(self.wall_model.wall_force(self.wall_distances)) # Weakest wall influence
+        wall_force = np.max(self.wall_model.wall_force(self.wall_distances)) # Strongest wall influence
         random_heading = heading_strength * ( 1- alpha * wall_force) * gaussian
         
         heading_change = self.heading + random_heading + wall_heading + social_heading
