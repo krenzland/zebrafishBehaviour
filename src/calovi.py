@@ -132,7 +132,7 @@ class Calovi:
         self.social_model = social_model
 
     def get_heading_change(self):
-        heading_strength = 0.4 # radians, TODO: Find parameter, use formula 6 for it!
+        heading_strength = 1.02 # radians, TODO: Find a better estimate, this one is very noisy!
         gaussian = np.random.normal(loc=0.0, scale=1.0)
 
         wall_heading = self.wall_model(self.wall_distances, self.wall_angles)
