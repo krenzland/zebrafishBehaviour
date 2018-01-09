@@ -30,10 +30,10 @@ class WallModel:
                    'shifted-sin-cos': lambda angle, a1, a2, b1, b2:
                    (a1 * np.cos(angle) + a2 * np.sin(2 * (angle + np.pi/2))) *
                    (-b1 * np.sin(angle) + b2 * np.cos(2 * (angle + np.pi/2))+ 1)}
-    params_map = {'calovi': np.array([6, 1.0, 0.7, 0.0]),
-                  'sin':  np.array([6, 1.0, 0.7, 0.0, 0.0]),
-                  'sin-cos': np.array([6, 1.0, 1.0, 1.0, 1.0, 1.0]),
-                  'shifted-sin-cos': np.array([6, 1.0, 1.0, 1.0, 1.0, 1.0])}
+    params_map = {'calovi': np.array([1, .0, 0.7, 0.0]),
+                  'sin':  np.array([1, 6.0, 0.7, 0.0, 0.0]),
+                  'sin-cos': np.array([1, 6.0, 1.0, 1.0, 1.0, 1.0]),
+                  'shifted-sin-cos': np.array([1, 6.0, 1.0, 1.0, 1.0, 1.0])}
     
     def __init__(self, angular_model='sin-cos'):
         self.angular_model = angular_model
