@@ -34,6 +34,7 @@
 \usepackage{tikz}
 \usetikzlibrary{arrows, positioning, shapes.geometric}
 \usetikzlibrary{calc}
+\graphicspath{{../../figures}}
 
 \newcommand{\cn}{\textbf{TODO: Citation}}
 
@@ -50,12 +51,17 @@ Advisers: Jacob (Max Plank), Nicola (CAMP)
 
 Goals:
 \begin{enumerate}
-\item Compare three models for Zebrafish Motion
-\item Example use case: Virtual Reality for Fish
+\item Compare three models for zebrafish motion
+\item Example use case: virtual reality for fish
 \end{enumerate}
 \end{frame}
 \begin{frame}{Zebrafish: Burst-and-coast Motion} 
-  (Video here that shows motion of zebrafish).
+    \begin{figure}[H]
+    \centering
+    \movie[width=0.66\textwidth, height=0.66\textwidth, autostart,, loop, poster]{}{motion_experiment.mp4}
+    \caption{Example of zebrafish motion}
+    \label{fig:calovi-sim}
+  \end{figure}
 \end{frame}
 
 \begin{frame}{First Model: Force Based (Calovi)}
@@ -96,8 +102,59 @@ Split into force term $f(r_w)$ and odd function $O_r(\theta_w)$
   \label{eq:calovi-wall-force}
   f(r_w) &= \exp\left( -{(r_w/l_w)}^2 \right) \\
   O(\theta_w) &= \left(a_1 \sin(\theta_w) + a_2 \sin(2  \theta_w)  \right)  \left( b_1  \cos(\theta_w) + \cos(2  \theta_w) \right)
-% (a1 * np.sin(angle) + a2 * np.sin(2*angle)) * (b1 * np.cos(angle) + b2 * np.cos(2*angle) + 1),
 \end{align}
 \end{frame}
 
+\begin{frame}
+  \frametitle{Calovi - Wall Fit}
+  \begin{figure}[H]
+    \centering
+    \includegraphics[scale=0.25]{wall_fit.pdf}
+    \caption{First results for wall model}
+    \label{fig:calovi-sim}
+  \end{figure}
+\end{frame}
+
+\begin{frame}
+  \frametitle{Calovi - First simulation}
+    \begin{figure}[H]
+    \centering
+    \movie[width=0.66\textwidth, height=0.66\textwidth, autostart,, loop, poster]{}{wall_animation.mp4}
+    \caption{First results for wall model}
+    \label{fig:calovi-sim}
+  \end{figure}
+\end{frame}
+
+\begin{frame}
+  \frametitle{Spatio-Temporal-Receptive Field}
+  Inspired by computational neuroscience
+
+  Drop assumption that kick is influenced only by current surroundings
+  
+  Approximate forces by weighted sum over past environment influences (e.g.\ distances, angles)
+
+  Linear model with memory
+\end{frame}
+
+\begin{frame}
+  \frametitle{Autoregressive Neural Network}
+  Idea: Approximate environment forces with a neural network
+
+  Time series data, strong autocorrelation
+
+  Some evidence for non-linear effects in collective animal motion \cn.
+
+  Use models such as Recurrent Neural Networks (e.g.\ LSTM, GRU) or causal convolutional networks
+  
+  Highly non-linear model with memory
+\end{frame}
+
+\begin{frame}
+  \frametitle{Summary}
+  \begin{itemize}
+  \item Calovi: Linear model without memory
+  \item Spatio-Temporal Receptive Field: Linear model with memory
+  \item Autoregressive Neural Network: Non-linear model with memory 
+  \end{itemize}
+\end{frame}
 \end{document}
