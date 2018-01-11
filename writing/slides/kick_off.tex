@@ -57,9 +57,9 @@
 \begin{document}
 \maketitle
 \begin{frame}{Introduction}
-Collaboration with Couzin Lab (Max Plank Institute for Ornithology/University of Konstanz)
+Collaboration with Couzin Lab (Max Plank Institute for Ornithology/University of Constance)
 
-Advisers: Dr.\ Jacob Davidson (Konstanz), Nicola Rieke (CAMP)
+Advisers: Dr.\ Jacob Davidson (Constance), Nicola Rieke (CAMP)
 
 Supervisor: Prof.\ Dr.\ Nassir Navab
 
@@ -110,7 +110,7 @@ Videos already annotated, use trajectories (\alert{no tracking needed})
 
 Segmentation into kicks as pre-processing step
 
-Model \textbf{for each} fish: Map wall distance/angle and neighbor distance/angle to heading change $\delta \phi$
+Model \textbf{for each} fish: Map wall distance/angle and neighbour distance/angle to heading change $\delta \phi$
 \begin{columns}
   \begin{column}{0.24\linewidth}
     \begin{figure}[h]
@@ -138,7 +138,7 @@ Model \textbf{for each} fish: Map wall distance/angle and neighbor distance/angl
 \end{column}
 
 \begin{column}{0.4\linewidth}
-  \begin{figure}[h]
+  \beggin{figure}[h]
     \centering
 \includegraphics[clip, width=0.8\linewidth]{kick_length.pdf}
     \caption*{Kick length}
@@ -245,11 +245,12 @@ $r_w$ distance to wall, $\theta_w$ angle towards wall
  \begin{columns}
    \begin{column}{0.5\textwidth}
   \begin{tikzpicture}[scale=0.5]
-   \draw[red] (3, 3)--(5,5);
+   %\draw[red] (3, 3)--(5,5);
    \draw[ultra thick] (0,0)--(0,5);
    %\draw (4,-3)--(4,3);
    \node[rotate=45] at (4.5,4.5) {\textcolor{red}\PHtunny};
    \node[rotate=90] at (2.5,2.5) {\PHtunny};
+   \node[rotate=90] at (2.5,0.5) {\textcolor{white}\PHtunny}; % quick hack to align stuff
  \end{tikzpicture}
 
  \textbf{No memory}: Only current position, etc.
