@@ -1,6 +1,12 @@
 \documentclass{beamer}
 \usetheme{metropolis} % Use metropolis theme
 
+\renewcommand{\footnoterule}{%
+  \hspace{10cm}
+  \kern -3pt
+  \hrule width \textwidth height 1pt
+  \kern 2pt
+}
 \usepackage[utf8]{inputenc}
 \usepackage[T1]{fontenc}
 \usepackage[british]{babel}
@@ -36,6 +42,9 @@
 \usepackage{tikz}
 \usetikzlibrary{arrows, positioning, shapes.geometric}
 \usetikzlibrary{calc}
+\usepackage{pgfgantt}
+
+
 \graphicspath{{../../figures/}}
 
 \newcommand{\cn}{\textbf{TODO: Citation}}
@@ -43,60 +52,109 @@
 \title{Data-Driven Models for Zebrafish Motion\\IDP kick-off}
 \author{Lukas Krenz}
 \date{January 12, 2018} 
-\institute{TUM}
+\institute{TUM, Chair for Computer Aided Medical Procedures \textit{\&} Augmented Reality}
 
 \begin{document}
 \maketitle
-\begin{frame}{What \textit{\&} Why?}
+\begin{frame}{Introduction}
 Collaboration with Couzin Lab (Max Plank Institute for Ornithology/University of Konstanz)
 
 Advisers: Dr.\ Jacob Davidson (Konstanz), Nicola Rieke (CAMP)
 
 Supervisor: Prof.\ Dr.\ Nassir Navab
 
-Goals:
-\begin{enumerate}
-\item Compare three models for motion of juvenile zebrafish (only roughly 1cm long)
-\item Not a tracking project, rather data-driven modelling/machine learning
-\item Example use case: virtual reality for fish
-\end{enumerate}
+Idea:
+\begin{itemize}
+\item Compare three data-driven models for motion of juvenile zebrafish
+\item Model should capture motion of fish observed in experiments with \textbf{real fish} (\alert{not tracking} an individual fish)
+\end{itemize}
+
+Example \textbf{use case}: controlling a fish in a virtual reality environment
 \end{frame}
+
+\begin{frame}{Real and Virtual Zebrafish}
+\begin{columns}
+   \begin{column}{0.5\textwidth}
+     \begin{figure}[h]
+       \centering
+\includegraphics[clip, width=1\linewidth]{zebrafish.jpg}
+       \caption*{A juvenile zebrafish}
+     \end{figure}
+   \end{column}
+   
+   \begin{column}{0.5\textwidth}
+     \begin{figure}[h]
+       \centering
+\includegraphics[clip, width=0.6\linewidth]{vr_zebrafish.jpg}
+       \caption*{Virtual reality for zebrafish}
+     \end{figure}
+   \end{column}
+\end{columns}
+VR-paper and image source\footnote{\textit{Virtual reality for freely moving animals}, Nature Methods, 2017, Stowers JR, Hofbauer M, Bastien R, Griessner J, Higgins P, Farooqui S, Fischer RM, Nowikovsky K, Haubensak W, Couzin ID, Tessmar-Raible K. }
+\end{frame}
+
 \begin{frame}{Zebrafish: Burst-and-coast Motion} 
     \begin{figure}[H]
     \centering
     \movie[width=0.66\textwidth, height=0.66\textwidth, autostart,, loop, poster]{}{motion_experiment.mp4}
-    \caption{Example of zebrafish motion}
+    \caption*{Example of zebrafish motion}
     \label{fig:calovi-sim}
   \end{figure}
 \end{frame}
 
 \begin{frame}
-  \frametitle{Modeling Fish Motion}
-Data: Roughly 100k kicks from 10 experiments with 2 fish swimming, each 1h long
+  \frametitle{Modelling Fish Motion}
+Data: Roughly \textbf{100k kicks} from 10 experiments with 2 fish swimming, each for 1h
 
-Videos already tracked!
+Videos already annotated, use trajectories (\alert{no tracking needed})
 
-Segmentation into kicks as preprocessing step
+Segmentation into kicks as pre-processing step
 
-Model Input: Distance and angle between fish and wall, distance and angles between both fish
+Model \textbf{for each} fish: Map wall distance/angle and neighbor distance/angle to heading change $\delta \phi$
+\begin{columns}
+  \begin{column}{0.24\linewidth}
+    \begin{figure}[h]
+      \centering
+    \begin{tikzpicture}[scale=0.4]
+   \draw[] (3, 3)--(5,5); % our fish at t
+   \node[rotate=45] at (4.5,4.5) {\textcolor{red}\PHtunny}; % head
+   
+   \draw[gray] (3.0, 0)--(3.0, 3.0); % fish at t - 1
+   \node[rotate=90] at (3.0,2.5) {\textcolor{gray}\PHtunny}; % fish at t -1
 
-Later: Data from more timesteps
+   \draw [red,very thick] (3.0, 1.0) arc (-90:45:2);
+   \node[rotate=45] at (3.8, 2.5) {\large$\delta\phi$};
+ \end{tikzpicture} 
+ \caption*{Heading change}
+\end{figure}
+\end{column}
 
-Model Output: Heading change of one fish
+\begin{column}{0.4\linewidth}
+  \begin{figure}[h]
+    \centering
+\includegraphics[clip, width=0.8\linewidth]{kick_duration.pdf}
+    \caption*{Kick duration}
+  \end{figure}
+\end{column}
 
-One model per fish
+\begin{column}{0.4\linewidth}
+  \begin{figure}[h]
+    \centering
+\includegraphics[clip, width=0.8\linewidth]{kick_length.pdf}
+    \caption*{Kick length}
+  \end{figure}
+\end{column}
+
+\end{columns}
 \end{frame}
 
-\begin{frame}{First Model: Force Based (Calovi et al)}
-Following ideas from \textit{Disentangling and modeling interactions in fish with burst-and-coast swimming}, arXiv, 2017, {\tiny{Calovi, D.S., Litchinko, A., Lecheval, V., Lopez, U., Escudero, A.P., Chaté, H., Sire, C. and Theraulaz, G.}} 
-
+\begin{frame}{First Model: Force Based (Calovi et al\footnote{\hspace*{0.1cm}\textit{Disentangling and modeling interactions in fish with burst-and-coast swimming}, arXiv, 2017, Calovi, D.S., Litchinko, A., Lecheval, V., Lopez, U., Escudero, A.P., Chaté, H., Sire, C. and Theraulaz, G.})}
 \begin{enumerate}
 \item Discrete model, model heading change $\delta \phi$ for kicks
-\item Decision process only uses current status
+\item Decision process only uses \textbf{current status}
 \item Force based, stochastic model
 \item Symmetry constraints 
 \end{enumerate}
-
 Full model:
 \begin{align*}
   \label{eq:calovi-model}
@@ -107,10 +165,24 @@ with: $r_w$ distance to wall, $\theta_w$ angle towards wall,\\ $d$ distance betw
 \end{frame}
 
 \begin{frame}
-  \frametitle{Calovi - Wall Fit}
-{\centering
-\includegraphics[clip, width=1.09\linewidth]{wall_fit.pdf}
-}
+  \frametitle{Calovi - (Preliminary) Wall Fit}
+ \begin{columns}
+   \begin{column}{0.5\textwidth}
+     \begin{figure}[h]
+       \centering
+\includegraphics[clip, width=1\linewidth]{wall_force.pdf}
+       \caption*{$f(r_w)$}
+     \end{figure}
+   \end{column}
+   
+   \begin{column}{0.5\textwidth}
+     \begin{figure}[h]
+       \centering
+\includegraphics[clip, width=1\linewidth]{wall_odd.pdf}
+       \caption*{$O(\theta_w)$}
+     \end{figure}
+   \end{column}
+\end{columns}
 \only<1>{
 \begin{align*}
   \delta \phi_w (r_w, \theta_w) &= f(r_w)O_w(\theta_w) \\
@@ -120,12 +192,10 @@ with: $r_w$ distance to wall, $\theta_w$ angle towards wall,\\ $d$ distance betw
 $r_w$ distance to wall, $\theta_w$ angle towards wall
 }
 \only<2>{
-%   Stable fixed points at -\ang{-90} and \ang{90} -> swimming parallel to wall
-%   Unstable fixed points at \ang{-180}, and \ang{180} -> swimming away from wall
-% TODO: Figure for fixed points
-% %what about the one at 0°?
  \begin{columns}
+   \centering
    \begin{column}{0.5\textwidth}
+     \centering
   \begin{tikzpicture}[scale=0.3]
    \draw (3,-2)--(3,2); %fish
    \draw[ultra thick] (4,-3)--(4,3);
@@ -140,6 +210,7 @@ $r_w$ distance to wall, $\theta_w$ angle towards wall
 \textbf{Stable fixed points}\\\ang{-90} and \ang{90}
    \end{column}
    \begin{column}{0.5\textwidth}
+     \centering
   \begin{tikzpicture}[scale=0.3]
    \draw (0,0)--(3,0); % fish
    \draw[ultra thick] (3,-3)--(3,3);
@@ -148,7 +219,7 @@ $r_w$ distance to wall, $\theta_w$ angle towards wall
    \begin{tikzpicture}[scale=0.3]
    \draw (0,0)--(3,0); % fish
    \draw[ultra thick] (3,-3)--(3,3);
-   \node[rotate=0] at (3,0) {\PHtunny};
+   \node[rotate=0] at (2,0) {\PHtunny};
  \end{tikzpicture}
 
 \textbf{Unstable fixed points}\\\ang{0}, \ang{-180} and \ang{180}  
@@ -164,13 +235,13 @@ $r_w$ distance to wall, $\theta_w$ angle towards wall
 \begin{figure}[H]
     \centering
     \movie[width=0.66\textwidth, height=0.66\textwidth, autostart,, loop, poster]{}{wall_animation.mp4}
-    \caption{First results for wall model}
+    \caption*{First simulation for wall model}
     \label{fig:calovi-sim}
 \end{figure}
 \end{frame}
 
 \begin{frame}
-  \frametitle{Second model: Spatio-Temporal-Receptive Field}
+  \frametitle{Second model: Spatio-Temporal Receptive Field}
  \begin{columns}
    \begin{column}{0.5\textwidth}
   \begin{tikzpicture}[scale=0.5]
@@ -195,47 +266,52 @@ $r_w$ distance to wall, $\theta_w$ angle towards wall
  \textbf{Memory}: Current position and trace
    \end{column}
  \end{columns}
+  Drop assumption that kick is influenced only by current surroundings
+
   Inspired by computational neuroscience
 
-  Drop assumption that kick is influenced only by current surroundings
-  
-  Approximate forces by weighted sum over past environment influences (e.g.\ distances, angles)
+  Approximate reaction to social forces by \textbf{weighted sum} over past environment influences (e.g.\ distances, angles)
 
   Linear model with memory
 \end{frame}
 
 \begin{frame}
   \frametitle{Third Model: Neural Network}
-  Idea: Approximate environment forces with a neural network
+  Some evidence\footnote{\textit{Inferring the structure and dynamics of interactions in schooling fish}, Proceedings of the National Academy of Sciences, 2011, Katz, Y., Tunstrøm, K., Ioannou, C. C., Huepe, C., and Couzin, I. D.} for non-linear effects in collective animal motion
+
+  Idea: Approximate reaction to social influences with a neural network
 
   Time series data, strong autocorrelation
 
-  Some evidence for non-linear effects in collective animal motion
-  (e.g. in\ \textit{Inferring the structure and dynamics of interactions in schooling fish}, PNAS, 2011, {\tiny Katz, Y., Tunstrøm, K., Ioannou, C. C., Huepe, C., and Couzin, I. D.})
-
-  Use models such as recurrent neural networks (e.g.\ LSTM, GRU) or causal convolutional networks
+  Use models such as \textbf{recurrent neural networks} (e.g.\ LSTM, GRU) or causal convolutional networks
   
   Highly non-linear model with memory
 \end{frame}
 
 \begin{frame}
   \frametitle{Summary and timeline}
-  \begin{itemize}
+\begin{itemize}
   \item Calovi: Linear model without memory
   \item Spatio-Temporal Receptive Field: Linear model with memory
   \item Neural Network: Non-linear model with memory 
-  \end{itemize}
-
-  \begin{block}{Timeline}
-    Steps will be finished in roughly$\dots$
-  \begin{description}
-\item[2 weeks] Pre-processing and Calovi
-\item[2 months] Linear Receptive Field
-\item[3 months] Non-Linear Receptive Field (Neural Network)
-  \end{description}
-   
-  \end{block}
+\end{itemize}
   
+ \begin{figure}[ftbp]
+  \centering
+  \begin{ganttchart}[
+    time slot format=isodate,
+    x unit=0.40mm,
+    today=2018-01-12,
+    y unit chart=5mm,
+    ]{2017-10-01}{2018-04-30}
+\gantttitlecalendar{year, month} \\
+\ganttbar{Pre-processing}{2017-10-19}{2018-02-01}\\
+\ganttgroup{Modelling}{2017-11-22}{2018-04-15}\\
+\ganttbar{Calovi}{2017-11-22}{2018-02-01}\\
+\ganttbar{Receptive Field}{2018-01-22}{2018-03-15}\\
+\ganttbar{Neural Network}{2018-02-15}{2018-04-15}
+\end{ganttchart}
+\end{figure} 
 \end{frame}
 
 \section{Appendix}
