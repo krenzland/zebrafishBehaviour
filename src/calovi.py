@@ -30,10 +30,10 @@ class WallModel:
                    'shifted-sin-cos': lambda angle, a1, a2, b1, b2:
                    (a1 * np.cos(angle) + a2 * np.sin(2 * (angle + np.pi/2))) *
                    (-b1 * np.sin(angle) + b2 * np.cos(2 * (angle + np.pi/2))+ 1)}
-    params_map = {'calovi': np.array([1, .0, 0.7, 0.0]),
+    params_map = {'calovi': np.array([1, 6.0, 0.7, 0.0]),
                   'sin':  np.array([1, 6.0, 0.7, 0.0, 0.0]),
-                  'sin-cos': np.array([1, 6.0, 1.0, 1.0, 1.0, 1.0]),
-                  'shifted-sin-cos': np.array([1, 6.0, 1.0, 1.0, 1.0, 1.0])}
+                  'sin-cos': np.array([1, 6.0, 0.7, 0.0, 0.0, 0.0]),
+                  'shifted-sin-cos': np.array([1, 6.0, 0.7, 0.0, 0.0, 0.0])}
     
     def __init__(self, angular_model='sin-cos'):
         self.angular_model = angular_model
@@ -58,6 +58,12 @@ class WallModel:
         
     def __call__(self, radius, angle):
         # Sum over all four walls.
+        # Take only closest 2 walls!
+        num = 4
+        idx_rows = np.argsort(radius, axis=0)[:num, :]
+        idx_cols = np.arange(radius.shape[1])[None, :]
+        radius = radius[idx_rows, idx_cols]
+        angle = angle[idx_rows, idx_cols] 
         return np.sum(self.scale * self.wall_force(radius) * self.wall_repulsion(angle), axis=0)
 
 def even_fun(angle, *weights):
@@ -135,7 +141,7 @@ class Calovi:
         heading_strength = 1.02 # radians, TODO: Find a better estimate, this one is very noisy!
         gaussian = np.random.normal(loc=0.0, scale=1.0)
 
-        wall_heading = self.wall_model(self.wall_distances, self.wall_angles)
+        wall_heading = self.wall_model(self.wall_distances.reshape(-1, 1), self.wall_angles.reshape(-1, 1))[0]
         #print(f"Wall heading = {np.rad2deg(wall_heading)}")
         social_heading = self.social_model(self.neigh_distance, self.neigh_viewing_angle, self.neigh_relative_angle)
         
@@ -216,7 +222,7 @@ def animate(model, n_frames, filename):
      # Set up initial values for animation.
     fig = plt.figure(figsize=(10,10))
     ax = plt.axes(xlim=(0, 30), ylim=(0, 30))
-    lines0, = ax.plot([], [], c='red', label='our fish')
+    lines0, = ax.plot([], [], c='red', linewidth=5, label='our fish')
     ax.legend(loc='upper right')
 
     # Set up animation buffers.
@@ -250,7 +256,7 @@ def main():
     with open('calovi_social.model', 'rb') as f:
         social_model = pickle.load(f)
     model = Calovi(kick_model=kick_model, wall_model=wall_model, social_model=social_model)
-    animate(model, 500, 'wall_animation.mp4')
+    animate(model, 1000, 'wall_animation.mp4')
 
 if __name__ == '__main__':
     main()
