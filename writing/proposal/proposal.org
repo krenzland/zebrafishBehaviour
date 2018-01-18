@@ -1,28 +1,75 @@
 #+TITLE: Project description
 #+TOC: nil
+#+LATEX_HEADER: \usepackage{pgfgantt}
 
-The goal of the project is to create a model for the behaviour of zebrafish.
-This model should be able to predict/simulate the individual motion of an animal reacting to its environment (e.g. other fish, wall).
-It could be used to steer a virtual fish in a virtual reality environment, for example.
+The goal of the project is to compare different strategies for modelling the behaviour of zebrafish.
+These models should be able to predict and simulate the individual motion of one animal reacting to its environment (e.g. another fish and a wall).
 
-We start with an existing model and refine it in three steps, each one removing assumptions thus creating a more flexible data-driven model.
+A use-case for this project is steering a virtual fish in a virtual reality environment for animals.
+One can then use this experimental setup to obverse causal relationships in animal behaviour.
+
+The movement of zebrafish can be described by discrete models that assume that the fish move in a piece-wise linear fashion.
+After deciding a heading direction, the fish kick-off and move in an approximately straight line.
+We model the heading change for each kick.
+
+We start with an existing model and refine it in three steps
+Each step drops assumptions about the behaviour and thus creates a more flexible, data-driven model.
 The models developed in the earlier steps serve as baselines for the more complicated ones.
+We can thus see whether the assumptions are correct and how important each component of the model is.
 1. 
-    We start from the simple model published by Calovi et. all[1].
-    It is capable of simulating Rummy-nose tetra moving in a constrained space, including the interaction with one other fish and the boundary of the space.
-
-    The model consists in two parts, one that models the information processing and one that models the gliding phase.
-    The first part governs the direction and strength of the movement, during the gliding phase the fish moves in a straight line with decaying velocity.
-    This gliding is described by a physical model with parameters taken from the data.
-
-    We need to adapt the parameters of this model to the movement of zebrafish.
-    This is possible because both animals exhibit similar movement patterns, i.e. both move in discrete bursts.
+   We start from the simple model published by Calovi et. all[1].
+   It is capable of simulating one Rummy-nose tetra moving in a constrained space, including the interaction with one other fish and the boundary of the space.
+   
+   The model consists in two parts.
+   The first part models the gliding phase and assumes that the fish move in a straight line with decaying velocity.
+   
+   The second part models the information processing process, that is, how the fish react to environmental forces.
+   All parameters of the model are obtained directly from the data.
+   
+   We need to adapt the parameters of this model to the movement of zebrafish.
+   This is possible because both animals exhibit similar movement patterns.
+   The model makes the assumption that the direction of each kick is influenced only by the current environment of the fish.
 2. 
-    We will then enhance the model by adding a time-dependent receptive field to the information processing model that includes information about the perception of the fish.
+   The next model drops this assumption.
+   We will replace the social model by a linear time-dependent receptive field model.
+   This model considers both time and space dependecies and adds a temporal component to the model, i.e. we add a memory.
+   
+   This results in a model that reflects the biological reality more closely.
 3.
-    As a next step, the receptive field should be replaced by a more general approach, using recurrent neural networks.
-    This corresponds to reverse engineering the algorithm used by the animals which maps their perceptions to their movement.
-4.
-    Finally, this approach can be generalised to higher number of neighbours (with possible non-linear interaction) and to more complicated movement patterns (e.g. varying kick duration).
+  As a next step, the receptive field will be replaced by a more general approach, using recurrent neural networks.
+  This type of model stil has a memory but additionally is able to capture possible non-linear interactions.
+  It is the only model out of three that is hard to interpret.
+  
+  
+The project is accompanied by two lectures, each granting 2 SWS:
+\begin{description}
+\item[Topics in Computational Biology] 
+The lecture describes how mathematical models can be applied to other areas of biology such as cell biology.
+It discusses models stemming from vastly different areas of applied mathematics such as dynamical systems or probabilistic modelling. 
+\item[Computational Neuroscience - A Lecture Series from Models to Applications]
+Both receptive fields and neural networks are inspired by models from computational neuroscience.
+Additionally this lecture connects fundamental neuroscience research to medical engineering topics.
+This could serve as an inspiration for other use-cases of models for animal behaviour.
+\end{description}
+Both lectures are concerned with small-scale modelling and practical application of biological models and serve as a supplement to the coarsely grained models explored in this project.
+
+The timeline and milestones of the project can be seen in the following figure:
+\begin{figure}[ftbp]
+  \centering
+  \begin{ganttchart}[
+    time slot format=isodate,
+    x unit=0.60mm,
+    today=2018-01-12,
+    y unit chart=1.0cm,
+    ]{2017-10-01}{2018-04-30}
+\gantttitlecalendar{year, month} \\
+\ganttbar{Pre-processing}{2017-10-19}{2018-02-01}\\
+\ganttgroup{Modelling}{2017-11-22}{2018-04-15}\\
+\ganttbar{Calovi}{2017-11-22}{2018-02-01}\\
+\ganttbar{Receptive Field}{2018-01-22}{2018-03-15}\\
+\ganttbar{Neural Network}{2018-02-15}{2018-04-15}
+\end{ganttchart}
+\end{figure} 
+\end{frame}
 
 [1]: Calovi et al (2017). Disentangling and modeling interactions in fish with burst-and-coast swimming
