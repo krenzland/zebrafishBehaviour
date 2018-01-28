@@ -137,21 +137,23 @@ class Calovi:
         self.wall_model = wall_model
         self.social_model = social_model
 
-    def get_heading_change(self):
+    def predict(self, wall_distances, wall_angles, neigh_distance, neigh_viewing_angle, neigh_relative_angle):
         heading_strength = 1.02 # radians, TODO: Find a better estimate, this one is very noisy!
         gaussian = np.random.normal(loc=0.0, scale=1.0)
 
-        wall_heading = self.wall_model(self.wall_distances.reshape(-1, 1), self.wall_angles.reshape(-1, 1))[0]
-        #print(f"Wall heading = {np.rad2deg(wall_heading)}")
-        social_heading = self.social_model(self.neigh_distance, self.neigh_viewing_angle, self.neigh_relative_angle)
+        wall_heading = self.wall_model(wall_distances.reshape(-1, 1), wall_angles.reshape(-1, 1))[0]
+        social_heading = self.social_model(neigh_distance, neigh_viewing_angle, neigh_relative_angle)
         
         alpha = 2.0/3.0 # Controls random movement strength near wall, value from Calovi not our data!
-        wall_force = np.max(self.wall_model.wall_force(self.wall_distances)) # Strongest wall influence
+        wall_force = np.max(self.wall_model.wall_force(wall_distances)) # Strongest wall influence
         random_heading = heading_strength * ( 1- alpha * wall_force) * gaussian
         
-        heading_change = self.heading + random_heading + wall_heading + social_heading
+        heading_change = random_heading + wall_heading + social_heading
 
         return clip_angle(heading_change)
+
+    def get_heading_change(self):
+        return self.predict(self.wall_distances, self.wall_angles, self.neigh_distance, self.neigh_viewing_angle, self.neigh_relative_angle)
 
     def is_inside_arena(self, position):
         x_min, x_max, y_min, y_max = self.bounding_box
