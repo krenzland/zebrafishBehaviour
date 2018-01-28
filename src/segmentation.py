@@ -23,6 +23,48 @@ def load_and_join(csv_path0, csv_path1):
     df_total = df_fish0.set_index('frame').join(df_fish1, lsuffix='_f0', rsuffix='_f1')
     return df_total
 
+def fix_time(df):
+    # Chage time so that it is equally spaced.
+    # Some frames are marked as invalid, those have to be dropped for kicks.
+
+    THRESHOLD = 0.005 # time differences smaller than this are ignored.
+    time = df['time']
+
+    new_time = []
+    valid = []
+    i = 0
+    while(i < len(time)):
+        cur_adj_time = len(new_time) * 0.01
+        new_time.append(cur_adj_time)
+
+        if (time[i] - cur_adj_time) > THRESHOLD:
+            # There is some missing frame here!
+            valid.append(False)
+        else:
+            valid.append(True)
+            i += 1
+
+    new_time = np.array(new_time)
+    valid = np.array(valid)
+
+    # Now we have to include the new time in the dataframe, without destroying data.
+    new_index = pd.RangeIndex(0, len(new_time), step=1)
+    # Prepare old data for new time
+    df.index = new_index[valid]
+    df['time'] = new_time[valid]
+
+    # Create frames for invalid entries (all NaN!)
+    invalid_frame = pd.DataFrame(index=new_index[~valid])
+    # Combine invalid frames and valid ones, recreate sorted index
+    df = df.append(invalid_frame).sort_index()
+    # Store which frames are valid, this is needed for the kick-segmentation later.
+    df['dropped'] = False
+    df.loc[~valid, 'dropped'] = True 
+    # Store correct time for invalid frames as well
+    df['time'] = new_time
+
+    return df
+
 def clean_dataset(df, drop_inf=True):
    # Drop duplicate columns
     df.drop(['time_f1', 'neighbor_distance_f1'], axis=1, inplace=True)
@@ -30,31 +72,44 @@ def clean_dataset(df, drop_inf=True):
     
     df['neighbor_distance'] = 0.0 # TODO: Remove this column entirely.
     
-    # Also drop frames with 0 time difference. Otherwise this destroys the data smoothing!
-    dt = np.hstack( (np.ediff1d(df['time']), float('inf')) )
-    df = df[dt != 0.0]
     if drop_inf:
         df = df.replace([np.inf, -np.inf], np.nan).dropna()
-        # TODO: If the frame index would be correct, this would create wrong skips.
-        # Maybe need to insert interpolated data for dropped frames.
+    # Fix index.
     df.index = range(0, len(df['time']))
+
+    df = fix_time(df)
     return df
 
-# ----- Smoothing and resampling -----
-# Sometimes we have a dataset that is not evenly spaced. this is adjusted by this function here.
-def resample_col(data, oldTime, newTime):
-    interpolator = interp.CubicSpline(oldTime, data)
-    return pd.Series(interpolator(newTime), index=np.arange(0, len(newTime)))
 
-def resample_dataset(df):
-    oldTime = df['time'].values
-    df['time'] = pd.Series(oldTime, index=np.arange(0, len(oldTime)))
+# ----- Smoothing and resampling -----
+# Sometimes we have datasets with dropped frames.
+# We interpolate the values for them to decrease problems with smoothing later.
+# This isn't mathematically elegant but not important because those frames aren't
+# considered for kicks anyway!
+def interpolate_col(data, time, dropped):
+    valid_times = time[~dropped]
+    invalid_times = time[dropped]
     
-    newTime = np.linspace(np.min(oldTime), np.max(oldTime), len(oldTime))
-    # Resample each row.
-    df = df.apply((lambda col: resample_col(col, oldTime, newTime)), axis=0)
-    # Adjust time again
-    df['time'] = pd.Series(newTime, index=np.arange(0, len(newTime)))
+    # Compute cubic spline with valid data.
+    interpolator = interp.CubicSpline(valid_times, data[~dropped])
+    # Replace invalid data with data from interpolation
+    index = data.index
+    data = data.values
+    data[dropped] = interpolator(invalid_times)
+    
+    return pd.Series(data, index)
+
+def interpolate_invalid(df):
+    # Save columns. Otherwise we loose information about dropped frames!
+    time = np.copy(df['time'].values)
+    dropped = np.copy(df['dropped'].values)
+    
+    # Resample invalid entries.
+    df = df.apply((lambda col: interpolate_col(col, df['time'].values, df['dropped'].values)), axis=0)
+
+    # Restore columns.
+    df['time'] = time
+    df['dropped'] = dropped
     return df
 
 def smooth_vector(x):    
@@ -106,7 +161,6 @@ def get_status(vel0, vel1, time, treshold):
                 cur_time_paused += time[i] - time[i - 1]
             else:
                 cur_time_paused += time[i]
-            #print(cur_time_paused, time[i])
         time_paused[i] = cur_time_paused
         
     # Backwards pass: Set status flags
@@ -189,14 +243,10 @@ def segmentation(acc, time):
                 
         clean_events.append(events[i])
 
-    # - Remove phases that are too short (i.e. < THRESHOLD)
-    #clean_events = [ e for e in clean_events if e[2] > THRESHOLD] 
-    # TODO: REmove, we do it in summarise kicks currently
-
     # Skip first, possibly invalid event!
     return clean_events[1:]
 
-def summarise_kick(phase, pos, status):
+def summarise_kick(phase, pos, status, dropped):
     start = phase[0][0]
     end = phase[1][1]
     duration = phase[0][2] + phase[1][2]
@@ -211,7 +261,12 @@ def summarise_kick(phase, pos, status):
 
     # Discard kick if it contains stopping.
     if np.any(status[start:end] == 'stopping'):
-        print('Stopping occured!')
+        #print('Stopping occured!')
+        return None
+
+    # Discard kick if it contains dropped frames
+    if np.any(dropped[start:end]):
+        #print('Kick contains dropped frames!')
         return None
 
     # Kick is now a valid kick.
@@ -221,9 +276,8 @@ def summarise_kick(phase, pos, status):
    
     return start, end, duration, gliding_duration, heading, kick_len
 
-def summarise_kicks(pos, acc, status, time):
+def summarise_kicks(pos, acc, status, dropped, time):
     phases = segmentation(acc, time)
-    # If heading is zero (no current kick) need to estimate traj. differently!
     
     # Find first acceleration phase
     begin = 0
@@ -238,7 +292,7 @@ def summarise_kicks(pos, acc, status, time):
     for i in range(begin, len(phases)//2):
         # A phase consists in a acceleration + gliding phase
         phase = phases[i*2 : i*2+2]
-        kick = summarise_kick(phase, pos, status)
+        kick = summarise_kick(phase, pos, status, dropped)
         if kick is not None:
             kicks.append(kick)
         else:
@@ -249,22 +303,15 @@ def summarise_kicks(pos, acc, status, time):
 # ---- Angles -----
 
 # TODO: Remove possible dead code here.
-@jit
-def get_wall_influence_circle(orientation, point, center, radius):
-    clostest_point = center + radius * unit_vector(point - center)
-    distance = np.linalg.norm(clostest_point - point)
-    wall_angle = angle_between(np.array([1,0]), clostest_point - point)
-    # Orientation is calculated w.r.t. to [1, 0] from tracking, possible bug.
-    relative_angle = sub_angles(wall_angle, orientation)
-    return clostest_point, distance, relative_angle
-
 def get_wall_influence(orientation, point, bounding_box):
     # Bounding box here is xMin, xMax, yMin, yMax
     xMin, xMax, yMin, yMax = bounding_box
     # We have 4 walls, wall_0/2 on the x-axis and wall_1/3 on the y-axis.
     wall_axes = np.array( [ 0, 1, 0, 1 ] )
     distance_offset = np.array( [xMin, yMin, xMax, yMax])
+    #distance_offset = np.array( [xMax, yMax, xMin, yMin])
     wall_angles = np.deg2rad(np.array( [0, 90, 180, -90] ))
+    wall_angles = np.deg2rad(np.array( [90, 0, -90, 180] ))
 
     def dist_to_wall(point, wall_id):
         axis = wall_axes[wall_id]
@@ -336,9 +383,10 @@ def calc_angles_df(df, bounding_box):
     acc_smooth0 = df['acceleration_smooth_f0'].values
     acc_smooth1 = df['acceleration_smooth_f1'].values
     status = df['status'].values
+    dropped = df['dropped'].values
     time = df['time'].values
-    kicks0 = summarise_kicks(pos0, acc_smooth0, status, time)
-    kicks1 = summarise_kicks(pos1, acc_smooth1, status, time)
+    kicks0 = summarise_kicks(pos0, acc_smooth0, status, dropped, time)
+    kicks1 = summarise_kicks(pos1, acc_smooth1, status, dropped, time)
     print("Summarised kicks.")
     
     angles = []
@@ -369,11 +417,13 @@ def main():
     print("Loading and joining done.")
     df = clean_dataset(df)
     print("Cleaned data.")
-    #print(df.describe())
-    df = resample_dataset(df)
+    df = interpolate_invalid(df)
     df = smooth_dataset(df)
     print("Smoothed velocity and acceleration!")
     df = add_status(df, SWIMMING_THRESHOLD)
+    print(f"Stopped frames: {((df['status'] == 'stopping')*1.0).sum()}.")
+    print(f"Dropped frames: {((df['dropped'] == True)*1.0).sum()}.")
+    
     print("Found active and passive swimming phases.")
     print(f"The data-frame has the following columns now:{df.columns}")
 
