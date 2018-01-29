@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import os
 import numpy as np
 import pandas as pd
 from itertools import product
@@ -377,7 +378,7 @@ def calc_angles(kick, pos_0, pos_1, angles_0, angles_1, vel_0, bounding_box, fis
 
 # ---- Putting it all together -----
     
-def calc_angles_df(df, bounding_box):
+def calc_angles_df(df, fish_names, bounding_box):
     pos0 = (df['x_f0'], df['y_f0'])
     pos1 = (df['x_f1'], df['y_f1'])
     acc_smooth0 = df['acceleration_smooth_f0'].values
@@ -391,10 +392,10 @@ def calc_angles_df(df, bounding_box):
     
     angles = []
     for kick in kicks0:
-        angles.append(calc_angles(kick, pos0, pos1, df['angle_f0'], df['angle_f1'], df['speed_smooth_f0'], bounding_box, fish_mapping=('f0', 'f1'), verbose=False))
+        angles.append(calc_angles(kick, pos0, pos1, df['angle_f0'], df['angle_f1'], df['speed_smooth_f0'], bounding_box, fish_mapping=fish_names, verbose=False))
     
     for kick in kicks1:
-        angles.append(calc_angles(kick, pos1, pos0, df['angle_f1'], df['angle_f0'], df['speed_smooth_f1'], bounding_box, fish_mapping=('f1', 'f0'), verbose=False))
+        angles.append(calc_angles(kick, pos1, pos0, df['angle_f1'], df['angle_f0'], df['speed_smooth_f1'], bounding_box, fish_mapping=fish_names[::-1], verbose=False))
 
     kick_columns = [ 'fish_id', 'heading_change', 'duration', 'gliding_duration', 'length', 'max_vel', 'end_vel']
     social_columns = ['neighbor_distance', 'neighbor_angle', 'geometric_leader', 'viewing_angle_ltf', 'viewing_angle_ftl', 'rel_orientation']
@@ -413,28 +414,50 @@ def main():
     csv_cleaned = '../data/processed/cleaned_guy.csv'
     csv_kicks = '../data/processed/kicks_guy.csv'
 
-    df = load_and_join(csv_path_0, csv_path_1)
-    print("Loading and joining done.")
-    df = clean_dataset(df)
-    print("Cleaned data.")
-    df = interpolate_invalid(df)
-    df = smooth_dataset(df)
-    print("Smoothed velocity and acceleration!")
-    df = add_status(df, SWIMMING_THRESHOLD)
-    print(f"Stopped frames: {((df['status'] == 'stopping')*1.0).sum()}.")
-    print(f"Dropped frames: {((df['dropped'] == True)*1.0).sum()}.")
-    
-    print("Found active and passive swimming phases.")
-    print(f"The data-frame has the following columns now:{df.columns}")
+    trials = range(2,3+1)
+    csv_dir = '../data/raw/'
+    full_filename = lambda f: os.path.abspath(f)
+    csv_paths = [(full_filename(f'{csv_dir}/trial{trial}_fish0.csv'),
+                  full_filename(f'{csv_dir}/trial{trial}_fish1.csv')) for trial in trials]
+    print(csv_paths)
 
-    # Calculate bounding box for rectangular arena.
-    bounding_box = (min(df['x_f0'].min(), df['x_f1'].min()), max(df['x_f0'].max(), df['x_f1'].max()), 
-                    min(df['y_f0'].min(), df['y_f1'].min()), max(df['y_f0'].max(), df['y_f1'].max()))
-    df_kicks = calc_angles_df(df, bounding_box)
+    dfs_cleaned = []
+    dfs_kicks = []
+    for i, (csv_path_0, csv_path_1) in enumerate(csv_paths):
+        print(f"Cleaning {csv_path_0} and {csv_path_1}")
+        fish_id = tuple(f'f{n}' for n in [i*2, (i*2)+1])
+        print(f"fish_id = {fish_id}")
 
-    print("Calculated angles.")
-    print(f"The kicks_df has the following columns now:{df_kicks.columns}")
-    df.to_csv(csv_cleaned, index=False)
+        df = load_and_join(csv_path_0, csv_path_1)
+        print("Loading and joining done.")
+        df = clean_dataset(df)
+        print("Cleaned data.")
+        df = interpolate_invalid(df)
+        df = smooth_dataset(df)
+        print("Smoothed velocity and acceleration!")
+        df = add_status(df, SWIMMING_THRESHOLD)
+        print(f"Stopped frames: {((df['status'] == 'stopping')*1.0).sum()}.")
+        print(f"Dropped frames: {((df['dropped'] == True)*1.0).sum()}.")
+
+        print("Found active and passive swimming phases.")
+        print(f"The data-frame has the following columns now:{df.columns}")
+
+        # Calculate bounding box for rectangular arena.
+        bounding_box = (min(df['x_f0'].min(), df['x_f1'].min()), max(df['x_f0'].max(), df['x_f1'].max()), 
+                        min(df['y_f0'].min(), df['y_f1'].min()), max(df['y_f0'].max(), df['y_f1'].max()))
+        print(f"Computed bounding box {bounding_box}.")
+        df_kicks = calc_angles_df(df, fish_id, bounding_box)
+
+        print("Calculated angles.")
+        print(f"The kicks_df has the following columns now:{df_kicks.columns}")
+        #df.to_csv(csv_cleaned, index=False)
+        #df_kicks.to_csv(csv_kicks, index=False)
+        dfs_cleaned.append(df)
+        dfs_kicks.append(df_kicks)
+
+    df_cleaned = pd.concat(dfs_cleaned)   
+    df_kicks = pd.concat(dfs_kicks)
+    df_cleaned.to_csv(csv_cleaned, index=False)
     df_kicks.to_csv(csv_kicks, index=False)
 
 if __name__ == '__main__':
