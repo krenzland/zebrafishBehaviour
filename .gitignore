@@ -102,6 +102,4 @@ ENV/
 
 
 # Ignore some of the data
-/data/raw/zebrafish26.01.2017_fish1.csv
-/data/raw/zebrafish26.01.2017_fish0.csv
-/data/old/zebrafish26.01.2017_fish0.csv
+/data/

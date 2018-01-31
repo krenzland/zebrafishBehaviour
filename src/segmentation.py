@@ -414,7 +414,7 @@ def main():
     csv_cleaned = '../data/processed/cleaned_guy.csv'
     csv_kicks = '../data/processed/kicks_guy.csv'
 
-    trials = range(2,3+1)
+    trials = range(2,11+1)
     csv_dir = '../data/raw/'
     full_filename = lambda f: os.path.abspath(f)
     csv_paths = [(full_filename(f'{csv_dir}/trial{trial}_fish0.csv'),
