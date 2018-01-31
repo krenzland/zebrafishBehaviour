@@ -1,12 +1,12 @@
-#+TITLE: Project description
+#+TITLE: Project description: Data-Driven Models for Zebrafish Motionn
 #+TOC: nil
 #+LATEX_HEADER: \usepackage{pgfgantt}
-
-The goal of the project is to compare different strategies for modelling the behaviour of zebrafish.
+This project is done in collaboration with the Couzin Lab at the Max Plank Institute for Ornithology and the University of Constance.
+The goal of the project is to compare different strategies for modelling the behaviour of juvenile zebrafish.
 These models should be able to predict and simulate the individual motion of one animal reacting to its environment (e.g. another fish and a wall).
 
 A use-case for this project is steering a virtual fish in a virtual reality environment for animals.
-One can then use this experimental setup to obverse causal relationships in animal behaviour.
+It can be used to perform experiments that investigate causal relationships in animal behaviour.
 
 The movement of zebrafish can be described by discrete models that assume that the fish moves in a piece-wise linear fashion.
 After choosing a heading direction, the fish kicks off and moves in an approximately straight line.
@@ -18,7 +18,7 @@ The models developed in the earlier steps serve as baselines for the more compli
 We can thus see whether the assumptions are correct and how important each component of the model is.
 1. 
    We start from the simple model published by Calovi et. all[1].
-   It is capable of simulating one rummy-nose tetra moving in a constrained space, including the interaction with one other fish and the boundary enclosing the arena.
+   It is capable of simulating one rummy-nose tetra moving in a tank, including its interaction with another fish and the boundary enclosing the arena.
    
    The model consists of two parts.
    The first part models the social information processing, that is, how the fish chooses its heading direction with respect to the environmental forces.
@@ -32,11 +32,11 @@ We can thus see whether the assumptions are correct and how important each compo
    The next model drops this assumption.
    We will replace the social model by a linear spatio-temporal receptive field model.
    This model considers the movement of other fish over a certain time period.
-   Practically speaking this adds a memory to the model.
+   Practically speaking, this adds a memory to the model.
    
-   This results in a model that reflects the biological reality more closely.
+   We hope that this will result in a model that reflects the biological reality more closely.
 3.
-  As a next step, the simple receptive field model will be replaced by a more general one, using a neural networks.
+  As a next step, the simple receptive field model will be replaced by a more general one, using a neural network.
   This type of model stil has a memory but additionally is able to approximate a larger family of functions.
   Due to the strong non-linearity this model is hard to interpret but able to capture complex, possible non-linear behaviour.
   
@@ -47,22 +47,22 @@ This lecture describes how mathematical models can be applied to other areas of 
 It discusses models stemming from vastly different areas of applied mathematics such as dynamical systems and probabilistic modelling. 
 \item[Computational Neuroscience---A Lecture Series from Models to Applications]
 Both receptive fields and neural networks are inspired by models from computational neuroscience.
-This lecture connects fundamental neuroscience research with medical engineering topics.
-This leads to an introduction to computational neuroscience that is focused on practical methodology.
+Basic knowledge of this subject area provides important background information, including but not limited to terminology and an understanding of the biological motivation for those models.
+Additionally, the lecture connects fundamental neuroscience research with medical engineering topics.
+This leads to an introduction to computational neuroscience that is focused on practical methodology applied in modern medicine.
 \end{description}
 Both lectures are concerned with small-scale models and their practical application and serve as a supplement to the coarse-grained models explored in this project.
 
 The timeline and milestones of the project are as follows:
 We start with the pre-processing of the kick data.
 The next step is then the implementation of the classical models, i.e. the Calovi and receptive field model.
-Finally we implement a neural network based network.
-Throughout the project we continuously monitor the effectiveness of our modelling strategies.
+Finally we implement a neural network based model.
+Throughout the project we continuously analyse the biological plausability of our models and evaluate their effectiveness.
 
 The expected time for each milestone is as follows:
-- Pre-processing: 1 month
-- Calovi-Model: 1 month
-- Spatio-Temporal Receptive Field: 2 months
+- Pre-processing: 2 months
+- Calovi-Model: 2 months
+- Spatio-Temporal Receptive Field: 1 month
 - Recurrent Neural Network: 2 months
-The classical models are concluded after the spatio-temporal receptive field milestone.
 
 [1]: Calovi et al (2017). Disentangling and modeling interactions in fish with burst-and-coast swimming
