@@ -83,7 +83,7 @@ class SocialModel:
         self.num_fourier = num_fourier
         # TODO: Find better initial values.
         params = np.hstack((np.array([0.3, 2.0,1.0]), np.array([1.0] * 3), \
-                                 np.zeros(num_fourier * 4)+1))
+                                 np.zeros(num_fourier * 4)))
         # Raw functions
         self._f_att = lambda dist, p1, p2, s: s * (dist - p1)/(1 + (dist/p2)**2)
         self._f_ali = lambda dist, p1, p2, s: s * (dist + p1) * np.exp(-(dist/p2)**2)
@@ -116,7 +116,7 @@ class SocialModel:
         return attraction + alignment
 
     def _get_params_slice(self, num_fun):
-        offset = 5 + num_fun * self.num_fourier
+        offset = 6 + num_fun * self.num_fourier
         return self.params[offset:offset+self.num_fourier]
  
 class Calovi:
