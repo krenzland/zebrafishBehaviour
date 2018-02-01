@@ -1,0 +1,102 @@
+% Created 2018-02-01 Thu 22:30
+\documentclass[11pt]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{fixltx2e}
+\usepackage{graphicx}
+\usepackage{longtable}
+\usepackage{float}
+\usepackage{wrapfig}
+\usepackage{rotating}
+\usepackage[normalem]{ulem}
+\usepackage{amsmath}
+\usepackage{textcomp}
+\usepackage{marvosym}
+\usepackage{wasysym}
+\usepackage{amssymb}
+\usepackage{hyperref}
+\tolerance=1000
+\usepackage{pgfgantt}
+\usepackage{microtype}
+\author{Lukas Krenz}
+\date{\today}
+\title{Project description: Data-Driven Models for Zebrafish Motion}
+\hypersetup{
+  pdfkeywords={},
+  pdfsubject={},
+  pdfcreator={Emacs 25.3.1 (Org mode 8.2.10)}}
+\begin{document}
+
+\maketitle
+
+This project is done in collaboration with the Couzin Lab at the Max Plank Institute for Ornithology and the University of Constance.
+The goal of the project is to compare different strategies for modelling the behaviour of juvenile zebrafish.
+These models should be able to predict and simulate the individual motion of one animal reacting to its environment (e.g. another fish and a wall).
+
+A use-case for this project is steering a virtual fish in a virtual reality environment for animals.
+It can be used to perform experiments that investigate causal relationships in animal behaviour.
+
+The movement of zebrafish can be described by discrete models that assume that the fish moves in a piece-wise linear fashion.
+After choosing a heading direction, the fish kicks off and moves in an approximately straight line.
+We model the heading change for each kick.
+
+We start with an simple model and refine it twice.
+Each modification drops assumptions about the behaviour and thus creates a more flexible, data-driven model.
+The models developed in the earlier steps serve as baselines for the more complicated ones.
+We can thus see whether the assumptions are correct and how important each component of the model is.
+\begin{enumerate}
+\item We start from the simple model published by Calovi et.\ al.\footnote{: Calovi et al (2017). Disentangling and modelling interactions in fish with burst-and-coast swimming}.
+It is capable of simulating one rummy-nose tetra moving in a tank, including its interaction with another fish and the boundary enclosing the arena.
+
+The model consists of two parts.
+The first part models the social information processing, that is, how the fish chooses its heading direction with respect to the environmental forces.
+The second part models the gliding after a kick and assumes that the fish moves in a straight line with decaying velocity.
+All parameters of the model are obtained directly from the data.
+
+We need to adapt some details of this model to the movement of zebrafish.
+This is possible because rummy-nose tetra and juvenile zebrafish move in a similar way.
+The model makes the assumption that the direction of each kick is influenced only by the current environment of the fish.
+\item The next model drops this assumption.
+We will replace the social model by a linear spatio-temporal receptive field model.
+This model considers the movement of other fish over a certain time period.
+Practically speaking, this adds a memory to the model.
+
+We hope that this will result in a model that reflects the biological reality more closely.
+\item As a next step, the simple receptive field model will be replaced by a more general one, using a neural network.
+This type of model still has a memory but additionally is able to approximate a larger family of functions.
+Due to the strong non-linearity this model is hard to interpret but able to capture complex, possible non-linear behaviour.
+\end{enumerate}
+
+The project is accompanied by the following two lectures:
+\begin{description}
+\item[Topics in Computational Biology] 
+This lecture describes how mathematical models can be applied to other areas of biology such as cell biology.
+It discusses models stemming from vastly different areas of applied mathematics such as dynamical systems and probabilistic modelling. 
+\item[Computational Neuroscience---A Lecture Series from Models to Applications]
+Both receptive fields and neural networks are inspired by models from computational neuroscience.
+Basic knowledge of this subject area provides important background information, including but not limited to terminology and an understanding of the biological motivation for those models.
+Additionally, the lecture connects fundamental neuroscience research with medical engineering topics.
+This leads to an introduction to computational neuroscience that is focused on practical methodology applied in modern medicine.
+\end{description}
+Both lectures are concerned with small-scale models and their practical application and serve as a supplement to the coarse-grained models explored in this project.
+
+The timeline and milestones of the project are:
+\begin{description}
+\item[Pre-Processing]
+We start with the pre-processing of the kick data.
+\item[Classical Models: Calovi \textit{\&} Receptive Field]
+The next step is then the implementation of the classical models, i.e.\ the Calovi and receptive field model.
+\item[Neural Network]
+Finally we implement a neural network based model.
+\end{description}
+Throughout the project we continuously analyse the biological plausibility of our models and evaluate their effectiveness.
+
+The expected time for each milestone is as follows:
+\begin{itemize}
+\item Pre-processing: 2 months
+\item Calovi-Model: 2 months
+\item Spatio-Temporal Receptive Field: 1 month
+\item Neural Network: 1 month
+\end{itemize}
+% Emacs 25.3.1 (Org mode 8.2.10)
+\end{document}
