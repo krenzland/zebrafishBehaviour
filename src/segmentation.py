@@ -432,6 +432,13 @@ def main():
         print("Loading and joining done.")
         df = clean_dataset(df)
         print("Cleaned data.")
+
+        # Calculate bounding box for rectangular arena.
+        # Important: Do this before interpolating missing frames - doing this afterwards leads to strange bbs!
+        bounding_box = (min(df['x_f0'].min(), df['x_f1'].min()), max(df['x_f0'].max(), df['x_f1'].max()), 
+                        min(df['y_f0'].min(), df['y_f1'].min()), max(df['y_f0'].max(), df['y_f1'].max()))
+        print(f"Computed bounding box {bounding_box}.")
+        
         df = interpolate_invalid(df)
         df = smooth_dataset(df)
         print("Smoothed velocity and acceleration!")
@@ -442,10 +449,6 @@ def main():
         print("Found active and passive swimming phases.")
         print(f"The data-frame has the following columns now:{df.columns}")
 
-        # Calculate bounding box for rectangular arena.
-        bounding_box = (min(df['x_f0'].min(), df['x_f1'].min()), max(df['x_f0'].max(), df['x_f1'].max()), 
-                        min(df['y_f0'].min(), df['y_f1'].min()), max(df['y_f0'].max(), df['y_f1'].max()))
-        print(f"Computed bounding box {bounding_box}.")
         df_kicks = calc_angles_df(df, fish_id, bounding_box)
 
         print("Calculated angles.")
