@@ -8,7 +8,7 @@ import scipy.signal as signal
 import scipy.interpolate as interp
 from numba import jit
 
-from util import unit_vector, angle_between, angled_vector, sub_angles
+from util import unit_vector, angle_between, angled_vector, sub_angles, add_angles
 
 # ----- Util ------
 
@@ -81,6 +81,22 @@ def clean_dataset(df, drop_inf=True):
     df = fix_time(df)
     return df
 
+# ------------------------------------
+def approximate_angles(df):
+    v_f0 = np.vstack((df['vX_f0'], df['vY_f0'])).T
+    v_f1 = np.vstack((df['vX_f1'], df['vY_f1'])).T
+
+    x_axis = np.array([1, 0])
+    angles_f0 = np.apply_along_axis(lambda dir: angle_between(x_axis, dir), axis=1, arr=v_f0)
+    angles_f1 = np.apply_along_axis(lambda dir: angle_between(x_axis, dir), axis=1, arr=v_f1)
+
+    # No velocity results in NaN angle, replace with trackign angle (better than nothing)
+    angles_f0[np.isnan(angles_f0)] = df['angle_f0'][np.isnan(angles_f0)]
+    angles_f1[np.isnan(angles_f1)] = df['angle_f1'][np.isnan(angles_f1)]
+    
+    df.loc[:,'angle_f0'] = pd.Series(angles_f0, index=df.index)
+    df.loc[:,'angle_f1'] = pd.Series(angles_f1, index=df.index)
+    return df
 
 # ----- Smoothing and resampling -----
 # Sometimes we have datasets with dropped frames.
@@ -302,25 +318,21 @@ def summarise_kicks(pos, acc, status, dropped, time):
     return kicks
 
 # ---- Angles -----
-
-# TODO: Remove possible dead code here.
 def get_wall_influence(orientation, point, bounding_box):
     # Bounding box here is xMin, xMax, yMin, yMax
     xMin, xMax, yMin, yMax = bounding_box
     # We have 4 walls, wall_0/2 on the x-axis and wall_1/3 on the y-axis.
-    wall_axes = np.array( [ 0, 1, 0, 1 ] )
-    distance_offset = np.array( [xMin, yMin, xMax, yMax])
-    #distance_offset = np.array( [xMax, yMax, xMin, yMin])
-    wall_angles = np.deg2rad(np.array( [0, 90, 180, -90] ))
-    wall_angles = np.deg2rad(np.array( [90, 0, -90, 180] ))
+    wall_axes = np.array( [ 1, 0, 1, 0 ] )
+    distance_offset = np.array( [yMin, xMax, yMax, xMin ])
+    wall_angles = np.deg2rad(np.array( [-90, 0, 90, 180] ) + 90)
 
     def dist_to_wall(point, wall_id):
         axis = wall_axes[wall_id]
         return np.abs(distance_offset[wall_id] - [point[axis]] )
 
     distances = np.array([ dist_to_wall(point, i) for i in range(4) ]).reshape(-1)
-    # Orientation is calculated w.r.t. to [1, 0] from tracking, possible bug.
-    relative_angles = sub_angles(wall_angles, orientation)
+    # Orientation is calculated w.r.t. to [1, 0] by me.
+    relative_angles = add_angles(wall_angles, -orientation)
     return distances, relative_angles
    
 def calc_angles(kick, pos_0, pos_1, angles_0, angles_1, vel_0, bounding_box, fish_mapping, verbose=False):
@@ -414,7 +426,8 @@ def main():
     csv_cleaned = '../data/processed/cleaned_guy.csv'
     csv_kicks = '../data/processed/kicks_guy.csv'
 
-    trials = range(2,11+1)
+    #trials = range(2,11+1)
+    trials = range(2,4)
     csv_dir = '../data/raw/'
     full_filename = lambda f: os.path.abspath(f)
     csv_paths = [(full_filename(f'{csv_dir}/trial{trial}_fish0.csv'),
@@ -440,6 +453,7 @@ def main():
         print(f"Computed bounding box {bounding_box}.")
         
         df = interpolate_invalid(df)
+        df = approximate_angles(df)
         df = smooth_dataset(df)
         print("Smoothed velocity and acceleration!")
         df = add_status(df, SWIMMING_THRESHOLD)

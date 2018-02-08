@@ -30,13 +30,12 @@ def sub_angles(a, b):
     """Subtract two angles whilst clipping them into a reasonable range."""
     return (a - b + np.pi + 2*np.pi) % (2 * np.pi) - np.pi
 
-@jit
 def add_angles(a, b):
     # TODO: Maybe refactor to sub_angles(a, -b) or sth.
-    angle = a + b
-    return clip_angle(angle)
+    return sub_angles(a, -b)
+    #angle = a + b
+    #return clip_angle(angle)
 
-@jit
 def clip_angle(angle):
     while angle < -np.pi:
         angle += 2*np.pi
