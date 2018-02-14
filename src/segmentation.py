@@ -7,6 +7,7 @@ import scipy.stats
 import scipy.signal as signal
 import scipy.interpolate as interp
 from numba import jit
+import sklearn.model_selection as cv
 
 from util import unit_vector, angle_between, angled_vector, sub_angles, add_angles
 
@@ -29,13 +30,15 @@ def fix_time(df):
     # Some frames are marked as invalid, those have to be dropped for kicks.
 
     THRESHOLD = 0.005 # time differences smaller than this are ignored.
+    dt = 0.01 # difference between two consecutive frames
     time = df['time']
+    offset = np.ceil(df['time'][0]/dt) * dt
 
     new_time = []
     valid = []
     i = 0
     while(i < len(time)):
-        cur_adj_time = len(new_time) * 0.01
+        cur_adj_time = len(new_time) * dt + offset
         new_time.append(cur_adj_time)
 
         if (time[i] - cur_adj_time) > THRESHOLD:
@@ -68,8 +71,8 @@ def fix_time(df):
 
 def clean_dataset(df, drop_inf=True):
    # Drop duplicate columns
-    df.drop(['time_f1', 'neighbor_distance_f1'], axis=1, inplace=True)
-    df.rename(columns={'time_f0': 'time', 'neighbor_distance_f0': 'neighbor_distance'}, inplace=True)
+    df = df.drop(['time_f1', 'neighbor_distance_f1'], axis=1)
+    df = df.rename(columns={'time_f0': 'time', 'neighbor_distance_f0': 'neighbor_distance'})
     
     df['neighbor_distance'] = 0.0 # TODO: Remove this column entirely.
     
@@ -349,10 +352,6 @@ def calc_angles(kick, pos_0, pos_1, angles_0, angles_1, vel_0, bounding_box, fis
     for dt in range(num_past_window+1):
         pos_f0 = np.array([ pos_0[0][start - dt], pos_0[1][start - dt] ])
         pos_f1 = np.array([ pos_1[0][start - dt], pos_1[1][start - dt] ])
-        # Traj. vector of both fish
-        # We use the angle of the fish, as it is more stable than the velocity.
-        #traj_f0 = angled_vector(angles_0[start])
-        #traj_f1 = angled_vector(angles_1[start])
 
         # Kick information:
         # Extract this only for dt = 0.
@@ -361,7 +360,6 @@ def calc_angles(kick, pos_0, pos_1, angles_0, angles_1, vel_0, bounding_box, fis
         if dt == 0:
             traj_kick = np.array([ pos_0[0][end], pos_0[1][end] ]) - pos_f0
             kick_len = np.linalg.norm(traj_kick)
-            #kick_heading = angle_between(x_axis, traj_kick)
             # TODO: Fix potential off by one error here.
             kick_max_vel = np.max(vel_0[start:end+1])
             end_vel = vel_0[end]#np.min(vel_0[start:end])
@@ -426,7 +424,6 @@ def calc_angles_df(df, fish_names, bounding_box):
 
     # Remove invalid kicks
     angles = np.concatenate([a for a in angles if a is not None])
-    print(angles.shape)
         
     kick_columns = [ 'fish_id', 'heading_change', 'duration', 'gliding_duration', 'length', 'max_vel', 'end_vel']
     social_columns = ['neighbor_distance', 'neighbor_angle', 'geometric_leader', 'viewing_angle_ltf', 'viewing_angle_ftl', 'rel_orientation']
@@ -440,59 +437,70 @@ def main():
     # Constants
     BODY_LENGTH = 1.0 # cm
     SWIMMING_THRESHOLD = 0.5/BODY_LENGTH
-    csv_cleaned = '../data/processed/cleaned_guy.csv'
-    csv_kicks = '../data/processed/kicks_guy.csv'
+
+    # {} in csv is placeholder for train/test.
+    csv_cleaned = '../data/processed/cleaned_guy_{}.csv'
+    csv_kicks = '../data/processed/kicks_guy_{}.csv'
 
     trials = range(2,11+1)
-    trials = range(2,3)
     csv_dir = '../data/raw/'
     csv_paths = [(os.path.abspath(f'{csv_dir}/trial{trial}_fish0.csv'),
                   os.path.abspath(f'{csv_dir}/trial{trial}_fish1.csv')) for trial in trials]
     print(csv_paths)
 
-    dfs_cleaned = []
-    dfs_kicks = []
+    dfs_cleaned = {'train': [], 'test': []}
+    dfs_kicks = {'train': [], 'test': []}
+
     for i, (csv_path_0, csv_path_1) in enumerate(csv_paths):
         print(f"Cleaning {csv_path_0} and {csv_path_1}")
         fish_id = tuple(f'f{n}' for n in [i*2, (i*2)+1])
         print(f"fish_id = {fish_id}")
 
-        df = load_and_join(csv_path_0, csv_path_1)
+        full_df = load_and_join(csv_path_0, csv_path_1)
         print("Loading and joining done.")
-        df = clean_dataset(df)
-        print("Cleaned data.")
 
-        # Calculate bounding box for rectangular arena.
-        # Important: Do this before interpolating missing frames - doing this afterwards leads to strange bbs!
-        bounding_box = (min(df['x_f0'].min(), df['x_f1'].min()), max(df['x_f0'].max(), df['x_f1'].max()), 
-                        min(df['y_f0'].min(), df['y_f1'].min()), max(df['y_f0'].max(), df['y_f1'].max()))
-        print(f"Computed bounding box {bounding_box}.")
-        
-        df = interpolate_invalid(df)
-        # TODO: Fix.
-        #df = approximate_angles(df)
-        df = smooth_dataset(df)
-        print("Smoothed velocity and acceleration!")
-        df = add_status(df, SWIMMING_THRESHOLD)
-        print(f"Stopped frames: {((df['status'] == 'stopping')*1.0).sum()}.")
-        print(f"Dropped frames: {((df['dropped'] == True)*1.0).sum()}.")
+        # Perform train test-split here.
+        # TODO: Take first 80% for half of data, final 80% for other half to avoid bias.
+        for df, subset_name in zip(cv.train_test_split(full_df, train_size=0.8, test_size=0.2, shuffle=False), ['train', 'test']):
+            print(f"Now considering {subset_name}.")
+            print(f"Len = {len(df)}")
+            df = clean_dataset(df)
+            print("Cleaned data.")
 
-        print("Found active and passive swimming phases.")
-        print(f"The data-frame has the following columns now:{df.columns}")
+            # Calculate bounding box for rectangular arena.
+            # Important: Do this before interpolating missing frames - doing this afterwards leads to strange bbs!
+            bounding_box = (min(df['x_f0'].min(), df['x_f1'].min()), max(df['x_f0'].max(), df['x_f1'].max()), 
+                            min(df['y_f0'].min(), df['y_f1'].min()), max(df['y_f0'].max(), df['y_f1'].max()))
+            print(f"Computed bounding box {bounding_box}.")
 
-        df_kicks = calc_angles_df(df, fish_id, bounding_box)
+            df = interpolate_invalid(df)
+            # TODO: Fix.
+            df = approximate_angles(df)
+            df = smooth_dataset(df)
+            print("Smoothed velocity and acceleration!")
+            df = add_status(df, SWIMMING_THRESHOLD)
+            print(f"Stopped frames: {((df['status'] == 'stopping')*1.0).sum()}.")
+            print(f"Dropped frames: {((df['dropped'] == True)*1.0).sum()}.")
 
-        print("Calculated angles.")
-        print(f"The kicks_df has the following columns now:{df_kicks.columns}")
-        #df.to_csv(csv_cleaned, index=False)
-        #df_kicks.to_csv(csv_kicks, index=False)
-        dfs_cleaned.append(df)
-        dfs_kicks.append(df_kicks)
+            print("Found active and passive swimming phases.")
+            #print(f"The data-frame has the following columns now:{df.columns}")
 
-    df_cleaned = pd.concat(dfs_cleaned)   
-    df_kicks = pd.concat(dfs_kicks)
-    df_cleaned.to_csv(csv_cleaned, index=False)
-    df_kicks.to_csv(csv_kicks, index=False)
+            df_kicks = calc_angles_df(df, fish_id, bounding_box)
+
+            print("Calculated angles.")
+            #print(f"The kicks_df has the following columns now:{df_kicks.columns}")
+
+            dfs_cleaned[subset_name].append(df.copy())
+            print(f"Len cleaned = {len(df)}")
+            dfs_kicks[subset_name].append(df_kicks)
+
+    if len(trials) > 1:
+        dfs_cleaned = {k: pd.concat(v) for k, v in dfs_cleaned.items()}
+        dfs_kicks = {k: pd.concat(v) for k, v in dfs_kicks.items()}
+
+    for subset_name in ['train', 'test']:
+        dfs_cleaned[subset_name].to_csv(csv_cleaned.format(subset_name), index=False)
+        dfs_kicks[subset_name].to_csv(csv_kicks.format(subset_name), index=False)
 
 if __name__ == '__main__':
     main()

@@ -59,7 +59,7 @@ class WallModel:
     def __call__(self, radius, angle):
         # Sum over all four walls.
         # Take only closest 2 walls!
-        num = 4
+        num = 2
         idx_rows = np.argsort(radius, axis=0)[:num, :]
         idx_cols = np.arange(radius.shape[1])[None, :]
         radius = radius[idx_rows, idx_cols]
