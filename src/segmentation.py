@@ -335,61 +335,76 @@ def get_wall_influence(orientation, point, bounding_box):
     relative_angles = add_angles(wall_angles, -orientation)
     return distances, relative_angles
    
-def calc_angles(kick, pos_0, pos_1, angles_0, angles_1, vel_0, bounding_box, fish_mapping, verbose=False):
+def calc_angles(kick, pos_0, pos_1, angles_0, angles_1, vel_0, bounding_box, fish_mapping, num_past_window=2, verbose=False):
     x_axis = np.array([1, 0]) # Used as a common reference for angles.
     
     start, end, duration, gliding_duration, heading, kick_len = kick
-    
-    pos_f0 = np.array([ pos_0[0][start], pos_0[1][start] ])
-    pos_f1 = np.array([ pos_1[0][start], pos_1[1][start] ])
- 
-    # Traj. vector of both fish
-    # We use the angle of the fish, as it is more stable than the velocity.
-    traj_f0 = angled_vector(angles_0[start])
-    traj_f1 = angled_vector(angles_1[start])
-  
-    # Vector connecting both fish, note that it is directed!
-    dist = pos_f1 - pos_f0
-    dist_norm = np.linalg.norm(dist)
-    dist_angle = angle_between(x_axis, dist)
 
-    # Calculate relevant angles. Note that the viewing angle is NOT symmetric.
-    viewing_angle_0t1 = sub_angles(dist_angle, angles_0[start])
-    viewing_angle_1t0 = sub_angles(-dist_angle, angles_1[start])
+    # Check if we have enough information about the past.
+    if start - num_past_window < 0:
+        return None
     
-    # The focal fish is defined as the geometric leader, i.e. the fish with the larger viewing angle.
-    # Corresponds to the fish which would need to turn more to look directly at the other fish.
-    # The sign of the relative orientation depends on which fish is the focal one.
-    if np.abs(viewing_angle_0t1) > np.abs(viewing_angle_1t0):
-        geometric_leader = fish_mapping[0]
-        rel_orientation = sub_angles(angles_1[start], angles_0[start])
-        viewing_angle_leader, viewing_angle_follower = viewing_angle_0t1, viewing_angle_1t0
-    else:
-        geometric_leader = fish_mapping[1]
-        rel_orientation = sub_angles(angles_0[start], angles_1[start])
-        viewing_angle_leader, viewing_angle_follower = viewing_angle_1t0, viewing_angle_0t1
-                         
-    # Collect some other summary data about the kick
-    traj_kick = np.array([ pos_0[0][end], pos_0[1][end] ]) - pos_f0
-    kick_len = np.linalg.norm(traj_kick)
-    kick_heading = angle_between(x_axis, traj_kick)
-    # TODO: Fix potential off by one error here.
-    kick_max_vel = np.max(vel_0[start:end+1])
-    end_vel = vel_0[end]#np.min(vel_0[start:end])
-    heading_change = sub_angles(angles_0[end], angles_0[start])
-    
-    # Estimate wall information.
-    wall_distance_0, wall_angle_0 = get_wall_influence(angles_0[start], pos_f0, bounding_box)
-    wall_distance_1, wall_angle_1 = get_wall_influence(angles_1[start], pos_f1, bounding_box)
+    kick_information = None
+    rows = []
+    for dt in range(num_past_window+1):
+        pos_f0 = np.array([ pos_0[0][start - dt], pos_0[1][start - dt] ])
+        pos_f1 = np.array([ pos_1[0][start - dt], pos_1[1][start - dt] ])
+        # Traj. vector of both fish
+        # We use the angle of the fish, as it is more stable than the velocity.
+        #traj_f0 = angled_vector(angles_0[start])
+        #traj_f1 = angled_vector(angles_1[start])
 
-    kick_information = np.array( [ fish_mapping[0], heading_change, duration, gliding_duration, kick_len,  kick_max_vel, end_vel] )
-    social_information = np.array([ dist_norm, dist_angle, geometric_leader, viewing_angle_leader, viewing_angle_follower, rel_orientation ])
-    wall_information = np.concatenate( (wall_distance_0, wall_angle_0, wall_distance_1, wall_angle_1) )
+        # Kick information:
+        # Extract this only for dt = 0.
+        # Otherwise reuse same value - not tidy, but makes analysis easier.
+        # These are the statistics about the kick itself.
+        if dt == 0:
+            traj_kick = np.array([ pos_0[0][end], pos_0[1][end] ]) - pos_f0
+            kick_len = np.linalg.norm(traj_kick)
+            #kick_heading = angle_between(x_axis, traj_kick)
+            # TODO: Fix potential off by one error here.
+            kick_max_vel = np.max(vel_0[start:end+1])
+            end_vel = vel_0[end]#np.min(vel_0[start:end])
+            heading_change = sub_angles(angles_0[end], angles_0[start])
 
-    return np.concatenate((kick_information, social_information, wall_information))
+            kick_information = np.array( [ fish_mapping[0], heading_change, duration, gliding_duration, kick_len,  kick_max_vel, end_vel] )
+        
+        # Social information:
+        # Vector connecting both fish, note that it is directed!
+        dist = pos_f1 - pos_f0
+        dist_norm = np.linalg.norm(dist)
+        dist_angle = angle_between(x_axis, dist)
+
+        # Calculate relevant angles. Note that the viewing angle is NOT symmetric.
+        viewing_angle_0t1 = sub_angles(dist_angle, angles_0[start - dt])
+        viewing_angle_1t0 = sub_angles(-dist_angle, angles_1[start - dt])
+
+        # The focal fish is defined as the geometric leader, i.e. the fish with the larger viewing angle.
+        # Corresponds to the fish which would need to turn more to look directly at the other fish.
+        # The sign of the relative orientation depends on which fish is the focal one.
+        if np.abs(viewing_angle_0t1) > np.abs(viewing_angle_1t0):
+            geometric_leader = fish_mapping[0]
+            rel_orientation = sub_angles(angles_1[start - dt], angles_0[start - dt])
+            viewing_angle_leader, viewing_angle_follower = viewing_angle_0t1, viewing_angle_1t0
+        else:
+            geometric_leader = fish_mapping[1]
+            rel_orientation = sub_angles(angles_0[start - dt], angles_1[start - dt])
+            viewing_angle_leader, viewing_angle_follower = viewing_angle_1t0, viewing_angle_0t1
+
+        social_information = np.array([ dist_norm, dist_angle, geometric_leader, viewing_angle_leader, viewing_angle_follower, rel_orientation ])
+
+        # Estimate wall information.
+        wall_distance_0, wall_angle_0 = get_wall_influence(angles_0[start - dt], pos_f0, bounding_box)
+        wall_distance_1, wall_angle_1 = get_wall_influence(angles_1[start - dt], pos_f1, bounding_box)
+
+        wall_information = np.concatenate( (wall_distance_0, wall_angle_0, wall_distance_1, wall_angle_1) )
+
+        row = np.concatenate(([dt], kick_information, social_information, wall_information))
+        rows.append(row)
+
+    return np.array(rows)
 
 # ---- Putting it all together -----
-    
 def calc_angles_df(df, fish_names, bounding_box):
     pos0 = (df['x_f0'], df['y_f0'])
     pos1 = (df['x_f1'], df['y_f1'])
@@ -409,10 +424,14 @@ def calc_angles_df(df, fish_names, bounding_box):
     for kick in kicks1:
         angles.append(calc_angles(kick, pos1, pos0, df['angle_f1'], df['angle_f0'], df['speed_smooth_f1'], bounding_box, fish_mapping=fish_names[::-1], verbose=False))
 
+    # Remove invalid kicks
+    angles = np.concatenate([a for a in angles if a is not None])
+    print(angles.shape)
+        
     kick_columns = [ 'fish_id', 'heading_change', 'duration', 'gliding_duration', 'length', 'max_vel', 'end_vel']
     social_columns = ['neighbor_distance', 'neighbor_angle', 'geometric_leader', 'viewing_angle_ltf', 'viewing_angle_ftl', 'rel_orientation']
     wall_columns = [ f"wall_{type}{wall}_{id}" for id, type, wall in product( ['f0', 'f1'], ['distance', 'angle'],[0,1,2,3] )]
-    columns = kick_columns + social_columns + wall_columns
+    columns = ['dt'] + kick_columns + social_columns + wall_columns
     df_kicks = pd.DataFrame(data=angles, columns=columns)
     
     return df_kicks
@@ -421,17 +440,14 @@ def main():
     # Constants
     BODY_LENGTH = 1.0 # cm
     SWIMMING_THRESHOLD = 0.5/BODY_LENGTH
-    csv_path_0 = '../data/raw/trial3_fish0.csv'
-    csv_path_1 = '../data/raw/trial3_fish1.csv'
     csv_cleaned = '../data/processed/cleaned_guy.csv'
     csv_kicks = '../data/processed/kicks_guy.csv'
 
-    #trials = range(2,11+1)
-    trials = range(2,4)
+    trials = range(2,11+1)
+    trials = range(2,3)
     csv_dir = '../data/raw/'
-    full_filename = lambda f: os.path.abspath(f)
-    csv_paths = [(full_filename(f'{csv_dir}/trial{trial}_fish0.csv'),
-                  full_filename(f'{csv_dir}/trial{trial}_fish1.csv')) for trial in trials]
+    csv_paths = [(os.path.abspath(f'{csv_dir}/trial{trial}_fish0.csv'),
+                  os.path.abspath(f'{csv_dir}/trial{trial}_fish1.csv')) for trial in trials]
     print(csv_paths)
 
     dfs_cleaned = []
@@ -453,7 +469,8 @@ def main():
         print(f"Computed bounding box {bounding_box}.")
         
         df = interpolate_invalid(df)
-        df = approximate_angles(df)
+        # TODO: Fix.
+        #df = approximate_angles(df)
         df = smooth_dataset(df)
         print("Smoothed velocity and acceleration!")
         df = add_status(df, SWIMMING_THRESHOLD)
