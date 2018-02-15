@@ -194,7 +194,7 @@ def get_status(vel0, vel1, time, treshold):
             elif is_cur_stopped:
                 # Still stopping
                 status[i] = STOPPING
-            elif time_paused[i] >= treshold:
+            elif time_paused[i] >= time_window:
                 # Paused for too long -> Stopping
                 is_cur_stopped = True
                 status[i] = STOPPING
@@ -338,7 +338,7 @@ def get_wall_influence(orientation, point, bounding_box):
     relative_angles = add_angles(wall_angles, -orientation)
     return distances, relative_angles
    
-def calc_angles(kick, pos_0, pos_1, angles_0, angles_1, vel_0, bounding_box, fish_mapping, num_past_window=2, verbose=False):
+def calc_angles(kick, pos_0, pos_1, angles_0, angles_1, vel_0, bounding_box, valid, fish_mapping, num_past_window=2, verbose=False):
     x_axis = np.array([1, 0]) # Used as a common reference for angles.
     
     start, end, duration, gliding_duration, heading, kick_len = kick
@@ -366,7 +366,12 @@ def calc_angles(kick, pos_0, pos_1, angles_0, angles_1, vel_0, bounding_box, fis
             heading_change = sub_angles(angles_0[end], angles_0[start])
 
             kick_information = np.array( [ fish_mapping[0], heading_change, duration, gliding_duration, kick_len,  kick_max_vel, end_vel] )
+            if not valid[start]:
+                print('Kick invalid!')
         
+        if not valid[start - dt]:
+            return None
+            
         # Social information:
         # Vector connecting both fish, note that it is directed!
         dist = pos_f1 - pos_f0
@@ -414,13 +419,14 @@ def calc_angles_df(df, fish_names, bounding_box):
     kicks0 = summarise_kicks(pos0, acc_smooth0, status, dropped, time)
     kicks1 = summarise_kicks(pos1, acc_smooth1, status, dropped, time)
     print("Summarised kicks.")
+    valid = (df['status'] != 'stopping') & (~df['dropped'])
     
     angles = []
     for kick in kicks0:
-        angles.append(calc_angles(kick, pos0, pos1, df['angle_f0'], df['angle_f1'], df['speed_smooth_f0'], bounding_box, fish_mapping=fish_names, verbose=False))
+        angles.append(calc_angles(kick, pos0, pos1, df['angle_f0'], df['angle_f1'], df['speed_smooth_f0'], bounding_box, valid, fish_mapping=fish_names, verbose=False))
     
     for kick in kicks1:
-        angles.append(calc_angles(kick, pos1, pos0, df['angle_f1'], df['angle_f0'], df['speed_smooth_f1'], bounding_box, fish_mapping=fish_names[::-1], verbose=False))
+        angles.append(calc_angles(kick, pos1, pos0, df['angle_f1'], df['angle_f0'], df['speed_smooth_f1'], bounding_box, valid, fish_mapping=fish_names[::-1], verbose=False))
 
     # Remove invalid kicks
     angles = np.concatenate([a for a in angles if a is not None])
@@ -436,7 +442,7 @@ def calc_angles_df(df, fish_names, bounding_box):
 def main():
     # Constants
     BODY_LENGTH = 1.0 # cm
-    SWIMMING_THRESHOLD = 0.5/BODY_LENGTH
+    SWIMMING_THRESHOLD = 2 #0.5/BODY_LENGTH
 
     # {} in csv is placeholder for train/test.
     csv_cleaned = '../data/processed/cleaned_guy_{}.csv'
