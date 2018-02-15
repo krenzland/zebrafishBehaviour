@@ -17,11 +17,35 @@ from util import unit_vector, angle_between, angled_vector, sub_angles, add_angl
 def load_and_join(csv_path0, csv_path1):
     df_fish0 = pd.read_csv(csv_path0)
     df_fish1 = pd.read_csv(csv_path1)
-    cols = ['frame', 'acceleration', 'angle', 'angular_a', 'angular_v',
-            'border_distance', 'neighbor_distance', 'speed', 'speed_smooth', 'vX',
-            'vY', 'x', 'y', 'time']
+    # Old cols frame	ACCELERATION#wcentroid (cm/s2)	ANGLE#wcentroid	ANGULAR_A#centroid	ANGULAR_V#centroid	BORDER_DISTANCE#wcentroid (cm)
+    #NEIGHBOR_DISTANCE (cm)	SPEED#wcentroid (cm/s)	SPEED#smooth#wcentroid (cm/s)	VX#wcentroid (cm/s)	VY#wcentroid (cm/s)
+    # X#wcentroid (cm)	Y#wcentroid (cm)	time#centroid
+
+#     cols = ['frame', 'acceleration', 'acceleration_smooth', 'acceleration_wcentroid', 'angle', 'angular_a', 'angular_v',
+#             'aX', 'aY'
+#             'border_distance',
+#             'midline_offset',
+#             'neighbor_distance', 'speed', 'speed_smooth', 'vX',
+#             'vY', 'x', 'y', 'time']
+    cols = ['frame', 'acceleration', 'acceleration_smooth', 'acceleration_smooth_wcentroid', 'angle', 'angular_a', 'angular_v',
+            'aX', 'aY', 'border_distance',
+            'midline_offset', 'neighbor_distance', 'SPEED#wcentroid (cm/s)',
+            'speed_smooth_wcentroid', 'speed__pcentroid',
+            'speed_smooth_pcentroid', 'speed', 'speed_smooth',
+            'vX', 'vY', 'x_wcentroid', 'x',
+            'y_wcentroid', 'y', 'normalized_midline', 'time']
+
+    drop =['acceleration_smooth', 'acceleration_smooth_wcentroid', 'angular_a', 'angular_v',
+            'aX', 'aY', 'border_distance',
+            'midline_offset', 'neighbor_distance', 'SPEED#wcentroid (cm/s)',
+            'speed_smooth_wcentroid', 'speed__pcentroid',
+            'speed_smooth_pcentroid',  'speed_smooth',
+            'vX', 'vY', 'x_wcentroid', 
+            'y_wcentroid', 'normalized_midline']
     df_fish0.columns = cols
     df_fish1.columns = cols
+    df_fish0.drop(drop, axis=1, inplace=True)
+    df_fish1.drop(drop, axis=1, inplace=True)
     df_total = df_fish0.set_index('frame').join(df_fish1, lsuffix='_f0', rsuffix='_f1')
     return df_total
 
@@ -71,10 +95,8 @@ def fix_time(df):
 
 def clean_dataset(df, drop_inf=True):
    # Drop duplicate columns
-    df = df.drop(['time_f1', 'neighbor_distance_f1'], axis=1)
-    df = df.rename(columns={'time_f0': 'time', 'neighbor_distance_f0': 'neighbor_distance'})
-    
-    df['neighbor_distance'] = 0.0 # TODO: Remove this column entirely.
+    df = df.drop(['time_f1'], axis=1)
+    df = df.rename(columns={'time_f0': 'time'})
     
     if drop_inf:
         df = df.replace([np.inf, -np.inf], np.nan).dropna()
@@ -84,22 +106,6 @@ def clean_dataset(df, drop_inf=True):
     df = fix_time(df)
     return df
 
-# ------------------------------------
-def approximate_angles(df):
-    v_f0 = np.vstack((df['vX_f0'], df['vY_f0'])).T
-    v_f1 = np.vstack((df['vX_f1'], df['vY_f1'])).T
-
-    x_axis = np.array([1, 0])
-    angles_f0 = np.apply_along_axis(lambda dir: angle_between(x_axis, dir), axis=1, arr=v_f0)
-    angles_f1 = np.apply_along_axis(lambda dir: angle_between(x_axis, dir), axis=1, arr=v_f1)
-
-    # No velocity results in NaN angle, replace with trackign angle (better than nothing)
-    angles_f0[np.isnan(angles_f0)] = df['angle_f0'][np.isnan(angles_f0)]
-    angles_f1[np.isnan(angles_f1)] = df['angle_f1'][np.isnan(angles_f1)]
-    
-    df.loc[:,'angle_f0'] = pd.Series(angles_f0, index=df.index)
-    df.loc[:,'angle_f1'] = pd.Series(angles_f1, index=df.index)
-    return df
 
 # ----- Smoothing and resampling -----
 # Sometimes we have datasets with dropped frames.
@@ -365,7 +371,7 @@ def calc_angles(kick, pos_0, pos_1, angles_0, angles_1, vel_0, bounding_box, val
             end_vel = vel_0[end]#np.min(vel_0[start:end])
             heading_change = sub_angles(angles_0[end], angles_0[start])
 
-            kick_information = np.array( [ fish_mapping[0], heading_change, duration, gliding_duration, kick_len,  kick_max_vel, end_vel] )
+            kick_information = np.array( [ fish_mapping[0], heading_change, duration, gliding_duration, kick_len, kick_max_vel, end_vel] )
             if not valid[start]:
                 print('Kick invalid!')
         
@@ -442,7 +448,7 @@ def calc_angles_df(df, fish_names, bounding_box):
 def main():
     # Constants
     BODY_LENGTH = 1.0 # cm
-    SWIMMING_THRESHOLD = 2 #0.5/BODY_LENGTH
+    SWIMMING_THRESHOLD = 0.5/BODY_LENGTH
 
     # {} in csv is placeholder for train/test.
     csv_cleaned = '../data/processed/cleaned_guy_{}.csv'
@@ -465,23 +471,24 @@ def main():
         full_df = load_and_join(csv_path_0, csv_path_1)
         print("Loading and joining done.")
 
+        print(f"Len = {len(full_df)}")
+        full_df = clean_dataset(full_df)
+        print("Cleaned data.")
+        
+        # Calculate bounding box for rectangular arena.
+        # Important: Do this before interpolating missing frames - doing this afterwards leads to strange bbs!
+        bounding_box = (min(full_df['x_f0'].min(), full_df['x_f1'].min()), max(full_df['x_f0'].max(), full_df['x_f1'].max()), 
+                        min(full_df['y_f0'].min(), full_df['y_f1'].min()), max(full_df['y_f0'].max(), full_df['y_f1'].max()))
+        print(f"Computed bounding box {bounding_box}.")
+        
         # Perform train test-split here.
         # TODO: Take first 80% for half of data, final 80% for other half to avoid bias.
         for df, subset_name in zip(cv.train_test_split(full_df, train_size=0.8, test_size=0.2, shuffle=False), ['train', 'test']):
+            # Fix index of dataframe (corrupted by splitting.)
+            df.index = range(0, len(df))
+
             print(f"Now considering {subset_name}.")
-            print(f"Len = {len(df)}")
-            df = clean_dataset(df)
-            print("Cleaned data.")
-
-            # Calculate bounding box for rectangular arena.
-            # Important: Do this before interpolating missing frames - doing this afterwards leads to strange bbs!
-            bounding_box = (min(df['x_f0'].min(), df['x_f1'].min()), max(df['x_f0'].max(), df['x_f1'].max()), 
-                            min(df['y_f0'].min(), df['y_f1'].min()), max(df['y_f0'].max(), df['y_f1'].max()))
-            print(f"Computed bounding box {bounding_box}.")
-
             df = interpolate_invalid(df)
-            # TODO: Fix.
-            df = approximate_angles(df)
             df = smooth_dataset(df)
             print("Smoothed velocity and acceleration!")
             df = add_status(df, SWIMMING_THRESHOLD)
