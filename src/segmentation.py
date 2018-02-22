@@ -15,38 +15,22 @@ from util import unit_vector, angle_between, angled_vector, sub_angles, add_angl
 
 # ----- Loading ------
 def load_and_join(csv_path0, csv_path1):
-    df_fish0 = pd.read_csv(csv_path0)
-    df_fish1 = pd.read_csv(csv_path1)
-    # Old cols frame	ACCELERATION#wcentroid (cm/s2)	ANGLE#wcentroid	ANGULAR_A#centroid	ANGULAR_V#centroid	BORDER_DISTANCE#wcentroid (cm)
-    #NEIGHBOR_DISTANCE (cm)	SPEED#wcentroid (cm/s)	SPEED#smooth#wcentroid (cm/s)	VX#wcentroid (cm/s)	VY#wcentroid (cm/s)
-    # X#wcentroid (cm)	Y#wcentroid (cm)	time#centroid
+    df_fish0 = pd.read_csv(csv_path0, index_col='frame')
+    df_fish1 = pd.read_csv(csv_path1, index_col='frame')
 
-#     cols = ['frame', 'acceleration', 'acceleration_smooth', 'acceleration_wcentroid', 'angle', 'angular_a', 'angular_v',
-#             'aX', 'aY'
-#             'border_distance',
-#             'midline_offset',
-#             'neighbor_distance', 'speed', 'speed_smooth', 'vX',
-#             'vY', 'x', 'y', 'time']
-    cols = ['frame', 'acceleration', 'acceleration_smooth', 'acceleration_smooth_wcentroid', 'angle', 'angular_a', 'angular_v',
-            'aX', 'aY', 'border_distance',
-            'midline_offset', 'neighbor_distance', 'SPEED#wcentroid (cm/s)',
-            'speed_smooth_wcentroid', 'speed__pcentroid',
-            'speed_smooth_pcentroid', 'speed', 'speed_smooth',
-            'vX', 'vY', 'x_wcentroid', 'x',
-            'y_wcentroid', 'y', 'normalized_midline', 'time']
+    # Drop x/y coords and use coords of centroid instead, as they are more stable.
+    to_drop = ['X (cm)', 'Y (cm)']
+    df_fish0.drop(to_drop, axis=1, inplace=True)
+    df_fish1.drop(to_drop, axis=1, inplace=True)
 
-    drop =['acceleration_smooth', 'acceleration_smooth_wcentroid', 'angular_a', 'angular_v',
-            'aX', 'aY', 'border_distance',
-            'midline_offset', 'neighbor_distance', 'SPEED#wcentroid (cm/s)',
-            'speed_smooth_wcentroid', 'speed__pcentroid',
-            'speed_smooth_pcentroid',  'speed_smooth',
-            'vX', 'vY', 'x_wcentroid', 
-            'y_wcentroid', 'normalized_midline']
-    df_fish0.columns = cols
-    df_fish1.columns = cols
-    df_fish0.drop(drop, axis=1, inplace=True)
-    df_fish1.drop(drop, axis=1, inplace=True)
-    df_total = df_fish0.set_index('frame').join(df_fish1, lsuffix='_f0', rsuffix='_f1')
+    rename_map = {'ANGLE':'angle', 
+                  'X#wcentroid (cm)': 'x',
+                  'Y#wcentroid (cm)': 'y',
+                  'time#centroid': 'time'}
+    df_fish0.rename(columns=rename_map, inplace=True)
+    df_fish1.rename(columns=rename_map, inplace=True)
+
+    df_total = df_fish0.join(df_fish1, lsuffix='_f0', rsuffix='_f1')
     return df_total
 
 def fix_time(df):
@@ -105,6 +89,15 @@ def clean_dataset(df, drop_inf=True):
 
     df = fix_time(df)
     return df
+
+def add_velocity(df):
+   print(df.columns)
+   for fish_id in [0,1]:
+       dx_dt = np.gradient(df[f'x_f{fish_id}'], 0.01)
+       dy_dt = np.gradient(df[f'y_f{fish_id}'], 0.01)
+       velocity = (dx_dt**2 + dy_dt**2)**(0.5) 
+       df.loc[:, f'speed_f{fish_id}'] = pd.Series(velocity, index=df.index)
+   return df
 
 
 # ----- Smoothing and resampling -----
@@ -454,10 +447,10 @@ def main():
     csv_cleaned = '../data/processed/cleaned_guy_{}.csv'
     csv_kicks = '../data/processed/kicks_guy_{}.csv'
 
-    trials = range(2,11+1)
+    trials = range(1,11+1)
     csv_dir = '../data/raw/'
-    csv_paths = [(os.path.abspath(f'{csv_dir}/trial{trial}_fish0.csv'),
-                  os.path.abspath(f'{csv_dir}/trial{trial}_fish1.csv')) for trial in trials]
+    csv_paths = [(os.path.abspath(f'{csv_dir}/trial{trial}_fish0-anglefiltered.csv'),
+                  os.path.abspath(f'{csv_dir}/trial{trial}_fish1-anglefiltered.csv')) for trial in trials]
     print(csv_paths)
 
     dfs_cleaned = {'train': [], 'test': []}
@@ -472,6 +465,10 @@ def main():
         print("Loading and joining done.")
 
         print(f"Len = {len(full_df)}")
+ 
+        full_df = add_velocity(full_df)
+        print("Computed velocity.")
+
         full_df = clean_dataset(full_df)
         print("Cleaned data.")
         
@@ -512,8 +509,8 @@ def main():
         dfs_kicks = {k: pd.concat(v) for k, v in dfs_kicks.items()}
 
     for subset_name in ['train', 'test']:
-        dfs_cleaned[subset_name].to_csv(csv_cleaned.format(subset_name), index=False)
-        dfs_kicks[subset_name].to_csv(csv_kicks.format(subset_name), index=False)
+        dfs_cleaned[subset_name][0].to_csv(csv_cleaned.format(subset_name), index=False)
+        dfs_kicks[subset_name][0].to_csv(csv_kicks.format(subset_name), index=False)
 
 if __name__ == '__main__':
     main()
