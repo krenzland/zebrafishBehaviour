@@ -63,17 +63,17 @@ def fix_time(df):
     new_index = pd.RangeIndex(0, len(new_time), step=1)
     # Prepare old data for new time
     df.index = new_index[valid]
-    df['time'] = new_time[valid]
+    df.loc[:, 'time'] = new_time[valid]
 
     # Create frames for invalid entries (all NaN!)
     invalid_frame = pd.DataFrame(index=new_index[~valid])
     # Combine invalid frames and valid ones, recreate sorted index
     df = df.append(invalid_frame).sort_index()
     # Store which frames are valid, this is needed for the kick-segmentation later.
-    df['dropped'] = False
+    df.loc[:, 'dropped'] = False
     df.loc[~valid, 'dropped'] = True 
     # Store correct time for invalid frames as well
-    df['time'] = new_time
+    df.loc[:, 'time'] = new_time
 
     return df
 
@@ -95,10 +95,15 @@ def add_velocity(df):
    for fish_id in [0,1]:
        dx_dt = np.gradient(df[f'x_f{fish_id}'], 0.01)
        dy_dt = np.gradient(df[f'y_f{fish_id}'], 0.01)
-       velocity = (dx_dt**2 + dy_dt**2)**(0.5) 
+       velocity = (dx_dt**2 + dy_dt**2)**(0.5)
+       print(velocity)
+       print(f"Velocity has 0 #times: {(1.0 * (velocity < 0.0)).sum()}")
        df.loc[:, f'speed_f{fish_id}'] = pd.Series(velocity, index=df.index)
-   return df
 
+   df = df.dropna()
+   df.index = range(0, len(df))
+   df = fix_time(df)
+   return df
 
 # ----- Smoothing and resampling -----
 # Sometimes we have datasets with dropped frames.
@@ -124,33 +129,53 @@ def interpolate_invalid(df):
     dropped = np.copy(df['dropped'].values)
     
     # Resample invalid entries.
-    df = df.apply((lambda col: interpolate_col(col, df['time'].values, df['dropped'].values)), axis=0)
+    #df = df.apply((lambda col: interpolate_col(col, df['time'].values, df['dropped'].values)), axis=0)
+    df = df.fillna(method='bfill')
 
     # Restore columns.
-    df['time'] = time
-    df['dropped'] = dropped
+    df.loc[:, 'time'] = time
+    df.loc[:, 'dropped'] = dropped
     return df
 
-def smooth_vector(x):    
+def smooth_vector(x, window_length=15): #window was 49 sometime
     # TODO: Double check whether window_length correspond to a reasonable timeframe!
     degree = 3
-    window_length=49
     
-    x = signal.savgol_filter(x, window_length=window_length, polyorder=degree, deriv=0) # TODO: Check
-    x_deriv = signal.savgol_filter(x, window_length=window_length, polyorder=degree, deriv=1)
-    
+    x = signal.savgol_filter(x, window_length=window_length, polyorder=degree, mode='constant', deriv=0) # TODO: Check
+    x_deriv = signal.savgol_filter(x, window_length=window_length, polyorder=degree, mode='constant', delta=0.01, deriv=1)
+
+    # TODO: Remove very dirty hack here!
+    #return np.abs(x), np.abs(x_deriv)
     return x, x_deriv
 
 def smooth_dataset(df):
+    window_length = 21
+
+    # Mark window surrounding each dropped frame as dropped as well.
+    # Window of 1 corresponds to only x, window of 2 to x-1, x, x+1 etc.
+    # This way the kicks aren't using incorrect velocities.
+    dropped = df['dropped'].values
+    new_dropped = np.array([False]*len(dropped))
+    drop_length = window_length//2
+    for i, b in enumerate(dropped):
+        begin = max(0, i-drop_length)
+        end = min(i+drop_length+1, len(dropped))
+        new_dropped[begin:end] = np.bitwise_or(new_dropped[begin:end], b)
+    df.loc[:, 'dropped'] = pd.Series(new_dropped, index=df.index)
+   
     vel0 = df['speed_f0'].values
     vel1 = df['speed_f1'].values
-    vel_smooth0, acc_smooth0 = smooth_vector(vel0)
-    vel_smooth1, acc_smooth1 = smooth_vector(vel1)
+    vel_smooth0, acc_smooth0 = smooth_vector(vel0, window_length=window_length)
+    vel_smooth1, acc_smooth1 = smooth_vector(vel1, window_length=window_length)
 
-    df.loc[:,'speed_smooth_f0'] = pd.Series(vel_smooth0, index=df.index)
-    df.loc[:,'speed_smooth_f1'] = pd.Series(vel_smooth1, index=df.index)
-    df.loc[:,'acceleration_smooth_f0'] = pd.Series(acc_smooth0, index=df.index)
-    df.loc[:,'acceleration_smooth_f1'] = pd.Series(acc_smooth1, index=df.index)
+    df.loc[:, 'speed_smooth_f0'] = pd.Series(vel_smooth0, index=df.index)
+    df.loc[:, 'speed_smooth_f1'] = pd.Series(vel_smooth1, index=df.index)
+    df.loc[:, 'acceleration_smooth_f0'] = pd.Series(acc_smooth0, index=df.index)
+    df.loc[:, 'acceleration_smooth_f1'] = pd.Series(acc_smooth1, index=df.index)
+
+    print('\n#Of f0 and f1 are negative:')
+    print((1.0*(df['speed_smooth_f0'] < 0.0)).sum())
+    print((1.0*(df['speed_smooth_f1'] < 0.0)).sum())
 
     return df
 
@@ -216,108 +241,72 @@ def add_status(df, treshold):
     return df
 
 # ----- Segmentation ----
-ACCELERATING = 1
-GLIDING = -1
-
-# In [9]: acc, time
-# Out[9]: (array([ 1,  1, -1, -1]), array([0, 1, 2, 3]))
-
-# In [10]: segmentation(acc, time)
-# Out[10]: [(0, 0, 0, 1), (0, 2, 2, 1), (2, 3, 1, -1)]
-
-def segmentation(acc, time):
-    THRESHOLD = 0.08 #s; treshold for kick duration
-    phases = (acc > 0.0) * ACCELERATING
-    events = []
-    
-    idx_start, idx_end, duration, etype = (0, -1, -1, -1)
-    cur_sign = -1 * np.sign(acc[0]) # start with correct event
-        
-    for i, a in enumerate(acc):
-        if np.sign(a) != cur_sign or i == (len(acc) -1):        
-            # push old event
-            idx_end = i
-            duration = time[i] - time[idx_start]
-            # Ignore short phases, they are probably just some noise.
-            if duration < THRESHOLD: # and cur_sign == GLIDING:
-                etype = -1 * cur_sign
-            else:
-                etype = cur_sign
-            events.append((idx_start, idx_end, duration, etype))
-            
-            # start new event
-            cur_sign *= -1
-            idx_start = i                
-
-    clean_events = []
-    # - Remove short phases of same time (from the removal of short phases)
-    for i in range(0, len(events)): # skip first invalid element start = end = 0   
-        idx_start, idx_end, duration, etype = events[i]
-        if i > 0:
-            old_idx_start, _, old_duration, old_etype = clean_events[-1]
-            if etype == old_etype:
-                # Fuse both events
-                clean_events[-1] = (old_idx_start, idx_end, old_duration + duration, etype)
-                continue
-                
-        clean_events.append(events[i])
-
-    # Skip first, possibly invalid event!
-    return clean_events[1:]
-
-def summarise_kick(phase, pos, status, dropped):
-    start = phase[0][0]
-    end = phase[1][1]
-    duration = phase[0][2] + phase[1][2]
-    gliding_duration = phase[1][2]
-
-    # Discard kick if acceleration phase is too short.
-    if phase[0][2] < 0.08:
-        return None
-
-    pos_start = np.array([ pos[0][start], pos[1][start] ])
-    pos_end = np.array([ pos[0][end], pos[1][end] ])
-
-    # Discard kick if it contains stopping.
-    if np.any(status[start:end] == 'stopping'):
-        #print('Stopping occured!')
-        return None
-
-    # Discard kick if it contains dropped frames
-    if np.any(dropped[start:end]):
-        #print('Kick contains dropped frames!')
-        return None
-
-    # Kick is now a valid kick.
-    traj_kick = pos_end - pos_start
-    heading = unit_vector(traj_kick)
-    kick_len = np.linalg.norm(traj_kick)
-   
-    return start, end, duration, gliding_duration, heading, kick_len
-
 def summarise_kicks(pos, acc, status, dropped, time):
-    phases = segmentation(acc, time)
-    
-    # Find first acceleration phase
-    begin = 0
-    for i in range(0, len(phases)):
-        if phases[i][-1] == 1:
-            begin = i
-            break
-    print(f"Begin={begin}")    
-    
-    kicks = []
-    discarded = 0
-    for i in range(begin, len(phases)//2):
-        # A phase consists in a acceleration + gliding phase
-        phase = phases[i*2 : i*2+2]
-        kick = summarise_kick(phase, pos, status, dropped)
-        if kick is not None:
-            kicks.append(kick)
+    dt = 0.01
+    threshold_gliding = 8  * dt
+    threshold_acc = 8 * dt
+
+    crossings = np.where(np.diff(np.signbit(acc)))[0] + 1
+    if acc[crossings[0]] < 0:
+        # Negative acceleration, first event is gliding.
+        # Before that incomplete acc. phase -> discard
+        begin = 1
+    else:
+        begin = 0
+
+    if (1 + len(crossings) - begin) % 2 == 0:
+        end = len(crossings) - 1
+    else:
+        end = len(crossings)
+    events = crossings[begin:end].reshape(-1, 2)
+
+    end_times = events[1:,0]
+    kick_duration = (end_times - events[:-1,0]) * dt
+    gliding_duration = (end_times - events[:-1,1]) * dt
+    nones = np.array([None]*len(end_times))
+    events = np.vstack((events[:-1, 0].T, end_times.T, kick_duration.T, gliding_duration.T, nones.T, nones.T)).T
+
+    # End times are beginning of new events
+    # TODO: Off by one error?
+    while(True):
+
+        # Fuse short gliding phases with previous kick
+        gliding_duration = events[:,3]
+        short_gliding = np.array(np.where(gliding_duration < threshold_gliding))
+        kicks_after = short_gliding + 1
+
+        valid_idx = kicks_after < events.shape[0]  # make sure kick exists
+        # TODO: If kick after our problematic kick doesn't exist, delete our kick
+
+
+        short_gliding = short_gliding[valid_idx]
+        kicks_after = kicks_after[valid_idx]
+
+        # Remove the gliding phase
+        # -> The kick following starts where the old kick started,
+        # acceleration phase is longer by the complete kick duration
+        # of the old kick
+        if len(short_gliding) > 0:
+            events[kicks_after, 0] = events[short_gliding, 0]
+            events[kicks_after, 2] = events[kicks_after, 2] + events[short_gliding, 2]
+            events[kicks_after, 3] = events[kicks_after, 3] + events[short_gliding, 2]
         else:
-            discarded += 1
-    print(f'Removed {discarded} kicks.') 
-    return kicks
+            break
+            # Reached fixedpoint of fusing.
+
+        # Now discard the kicks that were fused.
+        events = np.delete(events, short_gliding, axis=0)
+        print()
+        print(len(short_gliding))
+        print(events.shape[0])
+
+
+    # Finally discard all acceleration events that are short than a threshold
+    acceleration_duration = events[:,2] - events[:,3]
+    short_acc = np.where(acceleration_duration < threshold_acc)
+    events = np.delete(events, short_acc, axis=0)
+    return events
+    
 
 # ---- Angles -----
 def get_wall_influence(orientation, point, bounding_box):
@@ -337,13 +326,17 @@ def get_wall_influence(orientation, point, bounding_box):
     relative_angles = add_angles(wall_angles, -orientation)
     return distances, relative_angles
    
-def calc_angles(kick, pos_0, pos_1, angles_0, angles_1, vel_0, bounding_box, valid, fish_mapping, num_past_window=2, verbose=False):
+def calc_angles(kick, pos_0, pos_1, angles_0, angles_1, vel_0, bounding_box, valid, fish_mapping, num_past_window=0, verbose=False):
     x_axis = np.array([1, 0]) # Used as a common reference for angles.
     
-    start, end, duration, gliding_duration, heading, kick_len = kick
+    start, end, duration, gliding_duration, _, _ = kick
 
     # Check if we have enough information about the past.
     if start - num_past_window < 0:
+        return None
+
+    # Discard entire kick if it would use information from invalid frames.
+    if not np.all(valid[start-num_past_window:end+1]):
         return None
     
     kick_information = None
@@ -362,12 +355,15 @@ def calc_angles(kick, pos_0, pos_1, angles_0, angles_1, vel_0, bounding_box, val
             # TODO: Fix potential off by one error here.
             kick_max_vel = np.max(vel_0[start:end+1])
             end_vel = vel_0[end]#np.min(vel_0[start:end])
+            if end_vel < 0.0:
+                print("End vel < 0!")
             heading_change = sub_angles(angles_0[end], angles_0[start])
 
             kick_information = np.array( [ fish_mapping[0], heading_change, duration, gliding_duration, kick_len, kick_max_vel, end_vel] )
+            # TODO: Check validity for all timesteps in kick!
             if not valid[start]:
-                print('Kick invalid!')
-        
+                return None
+
         if not valid[start - dt]:
             return None
             
@@ -421,11 +417,12 @@ def calc_angles_df(df, fish_names, bounding_box):
     valid = (df['status'] != 'stopping') & (~df['dropped'])
     
     angles = []
+    # TODO: Use smoothed speed here or better not?
     for kick in kicks0:
-        angles.append(calc_angles(kick, pos0, pos1, df['angle_f0'], df['angle_f1'], df['speed_smooth_f0'], bounding_box, valid, fish_mapping=fish_names, verbose=False))
+        angles.append(calc_angles(kick, pos0, pos1, df['angle_f0'], df['angle_f1'], df['speed_f0'], bounding_box, valid, fish_mapping=fish_names, verbose=False))
     
     for kick in kicks1:
-        angles.append(calc_angles(kick, pos1, pos0, df['angle_f1'], df['angle_f0'], df['speed_smooth_f1'], bounding_box, valid, fish_mapping=fish_names[::-1], verbose=False))
+        angles.append(calc_angles(kick, pos1, pos0, df['angle_f1'], df['angle_f0'], df['speed_f1'], bounding_box, valid, fish_mapping=fish_names[::-1], verbose=False))
 
     # Remove invalid kicks
     angles = np.concatenate([a for a in angles if a is not None])
@@ -448,6 +445,7 @@ def main():
     csv_kicks = '../data/processed/kicks_guy_{}.csv'
 
     trials = range(1,11+1)
+    trials = range(1,11+1)
     csv_dir = '../data/raw/'
     csv_paths = [(os.path.abspath(f'{csv_dir}/trial{trial}_fish0-anglefiltered.csv'),
                   os.path.abspath(f'{csv_dir}/trial{trial}_fish1-anglefiltered.csv')) for trial in trials]
@@ -465,12 +463,13 @@ def main():
         print("Loading and joining done.")
 
         print(f"Len = {len(full_df)}")
- 
-        full_df = add_velocity(full_df)
-        print("Computed velocity.")
 
         full_df = clean_dataset(full_df)
         print("Cleaned data.")
+
+        full_df = add_velocity(full_df)
+        print("Computed velocity.")
+
         
         # Calculate bounding box for rectangular arena.
         # Important: Do this before interpolating missing frames - doing this afterwards leads to strange bbs!
@@ -504,13 +503,12 @@ def main():
             print(f"Len cleaned = {len(df)}")
             dfs_kicks[subset_name].append(df_kicks)
 
-    if len(trials) > 1:
-        dfs_cleaned = {k: pd.concat(v) for k, v in dfs_cleaned.items()}
-        dfs_kicks = {k: pd.concat(v) for k, v in dfs_kicks.items()}
+    dfs_cleaned = {k: pd.concat(v) for k, v in dfs_cleaned.items()}
+    dfs_kicks = {k: pd.concat(v) for k, v in dfs_kicks.items()}
 
     for subset_name in ['train', 'test']:
-        dfs_cleaned[subset_name][0].to_csv(csv_cleaned.format(subset_name), index=False)
-        dfs_kicks[subset_name][0].to_csv(csv_kicks.format(subset_name), index=False)
+        dfs_cleaned[subset_name].to_csv(csv_cleaned.format(subset_name), index=False)
+        dfs_kicks[subset_name].to_csv(csv_kicks.format(subset_name), index=False)
 
 if __name__ == '__main__':
     main()
