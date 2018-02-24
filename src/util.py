@@ -22,7 +22,7 @@ def angled_vector(angle, reference=np.array([1, 0])):
     """ Calculate a unit vector of angle 'angle' w.r.t the vector 'reference'. """
     c = np.cos(angle)
     s = np.sin(angle)
-    R = np.array([c, -s, s, -c]).reshape(2,2)
+    R = np.array([c, -s, s, c]).reshape(2,2)
     return (R @ reference.reshape(2,1)).reshape(2)
 
 @jit
