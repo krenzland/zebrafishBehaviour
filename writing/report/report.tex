@@ -1,0 +1,169 @@
+\documentclass[nobib]{tufte-handout}
+
+\title{Data-Driven Models for Zebrafish Motion}
+
+\author[Lukas Krenz]{Lukas Krenz}
+
+%\geometry{showframe} % display margins for debugging page layout
+\usepackage{hyphenat}
+\usepackage[
+  style=verbose,
+  autocite=footnote,
+  backend=biber
+]{biblatex}
+\addbibresource{../bibliography.bib}
+
+\usepackage{caption}
+\usepackage{xpatch}
+\usepackage{bm}
+\usepackage{amsmath}
+\usepackage{mathtools} % for \mathclap
+\usepackage{varioref}
+\usepackage{siunitx}
+\usepackage{hyperref}
+\usepackage[noabbrev]{cleveref}
+\newcommand{\creflastconjunction}{, and\nobreakspace} % use Oxford comma
+\usepackage{todonotes}
+\usepackage{phaistos}
+\usepackage{multimedia}
+\usepackage{tikz}
+\usetikzlibrary{arrows, positioning, shapes.geometric}
+\usetikzlibrary{calc}
+
+\graphicspath{{../../figures/}}
+
+% \usepackage{graphicx} % allow embedded images
+%   \setkeys{Gin}{width=\linewidth,totalheight=\textheight,keepaspectratio}
+%   \graphicspath{{graphics/}} % set of paths to search for images
+% \usepackage{amsmath}  % extended mathematics
+% \usepackage{booktabs} % book-quality tables
+% \usepackage{units}    % non-stacked fractions and better unit spacing
+% \usepackage{multicol} % multiple column layout facilities
+% \usepackage{fancyvrb} % extended verbatim environments
+%   \fvset{fontsize=\normalsize}% default font size for fancy-verbatim environments
+
+% Standardize command font styles and environments
+\newcommand{\doccmd}[1]{\texttt{\textbackslash#1}}% command name -- adds backslash automatically
+\newcommand{\docopt}[1]{\ensuremath{\langle}\textrm{\textit{#1}}\ensuremath{\rangle}}% optional command argument
+\newcommand{\docarg}[1]{\textrm{\textit{#1}}}% (required) command argument
+\newcommand{\docenv}[1]{\textsf{#1}}% environment name
+\newcommand{\docpkg}[1]{\texttt{#1}}% package name
+\newcommand{\doccls}[1]{\texttt{#1}}% document class name
+\newcommand{\docclsopt}[1]{\texttt{#1}}% document class option name
+\newenvironment{docspec}{\begin{quote}\noindent}{\end{quote}}% command specification environment
+
+\begin{document}
+
+\maketitle% this prints the handout title, author, and date
+
+\begin{abstract}
+\noindent
+The goal of the project is to compare different data-driven models for the behavior of zebrafish.
+The models should be able to predict and simulate the individual motion of an animal reacting to its environment (e.g. another fish, wall).
+It can be used to steer a fish in a virtual reality environment, for example.
+
+We start with the evaluation of a simple force based model.
+The model consists of two parts, one that models the information processing and one that models the gliding phase.
+The gliding is described by a physical model with parameters taken from the data.
+
+We will then enhance the model by using a spatio-temporal (linear) receptive field as the social model that includes information about the perception of the fish.
+This modeling strategy is inspired by computational neuroscience and adds a 'memory' to the model.
+
+As a next step, the receptive field will be replaced by a recurrent neural network.
+This is a generalization of the previous model and includes possible non-linear reactions and time-dependencies.
+\end{abstract}
+
+\section{Introduction}
+The goal of the project is to compare different strategies for modelling the behaviour of juvenile zebrafish.
+These models should be able to predict and simulate the individual motion of one animal reacting to its environment (e.g. another fish and a wall).
+
+A use-case for this project is steering a virtual fish in a virtual reality environment for animals.
+It can be used to perform experiments that investigate causal relationships in animal behaviour.
+
+The movement of zebrafish can be described by discrete models that assume that the fish moves in a piece-wise linear fashion.
+After choosing a heading direction, the fish kicks off and moves in an approximately straight line.
+We model the heading change for each kick.
+
+We start with an simple model and refine it twice.
+Each modification drops assumptions about the behaviour and thus creates a more flexible, data-driven model.
+The models developed in the earlier steps serve as baselines for the more complicated ones.
+We can thus see whether the assumptions are correct and how important each component of the model is.
+\begin{enumerate}
+\item We start from the simple model published by Calovi et.\ al.\footnote{: Calovi et al (2017). Disentangling and modelling interactions in fish with burst-and-coast swimming}.
+It is capable of simulating one rummy-nose tetra moving in a tank, including its interaction with another fish and the boundary enclosing the arena.
+
+The model consists of two parts.
+The first part models the social information processing, that is, how the fish chooses its heading direction with respect to the environmental forces.
+The second part models the gliding after a kick and assumes that the fish moves in a straight line with decaying velocity.
+All parameters of the model are obtained directly from the data.
+
+We need to adapt some details of this model to the movement of zebrafish.
+This is possible because rummy-nose tetra and juvenile zebrafish move in a similar way.
+The model makes the assumption that the direction of each kick is influenced only by the current environment of the fish.
+\item The next model drops this assumption.
+We will replace the social model by a linear spatio-temporal receptive field model.
+This model considers the movement of other fish over a certain time period.
+Practically speaking, this adds a memory to the model.
+
+We hope that this will result in a model that reflects the biological reality more closely.
+\item As a next step, the simple receptive field model will be replaced by a more general one, using a neural network.
+This type of model still has a memory but additionally is able to approximate a larger family of functions.
+Due to the strong non-linearity this model is hard to interpret but able to capture complex, possible non-linear behaviour.
+\end{enumerate}
+
+\section{Models}
+We begin with the modeling of wall-forces.
+We follow the modeling approach of~\autocite{calovi} and describe the influence of a wall on the heading change \(\delta \phi_w\) as
+\begin{equation*}
+  \delta \phi_w (r_w, \theta_w) = f(r_w)O_w(\theta_w),
+\end{equation*}
+where $r_w$ corresponds to the distance to the wall and $\theta$ is the relative angle of the fish towars the wall.
+We split the wall influence into an exponential decaying force term \(f_w\) and an odd angular-response function \(O_w\).
+%todo: multiply by a constant
+\begin{align*}
+  f(r_w) &= \exp\left( -{(r_w/l_w)}^2 \right), \\
+  O(\theta_w) &= \left(a_1 \sin(\theta_w) + a_2 \sin(2  \theta_w)  \right)  \left(1 +  b_1  \cos(\theta_w) + b_2 \cos(2  \theta_w) \right),
+\end{align*}
+where $l_w, a_1, a_2, b_1 \text{ and } b_2$ are parameters.
+Note that we use a different series expansion for the odd angular function \(O_w\)
+\footnote{Their proposed form does not work in our case.
+  The reason for this could be that they consider both a different species and a round wall.}.
+Finally, we consider the closest two walls and sum over the influences
+\begin{equation*}
+ \delta \phi_w^{\text{total}} \left( \bm{r_w}, \bm{\theta_w} \right) = \sum_{i \in 2 \text{ closest walls}} \delta \phi_w^i (r_w^i, \theta_w^i).
+\end{equation*}
+The parameters are fit by minimizing the mean-squared error of heading change prediction using gradient-descent.
+% todo: we do not actually use gradient descent but something different.
+
+\subsection{Receptive Fields}
+We now explain the input features of our social models.
+From here on, we restrict our dataset to kicks where the wall influence is neglible.
+Practically, we drop all kicks where the value of \(f_w(r_w)\) is larger than $0.1$.
+
+Our social model use a receptive field as their input~\autocite{discreteModes}.
+We construct this by rotating the coordinate system such that the fish we are considering is parallel to the x-axis.
+This corresponds to a heading of zero degrees.
+We then shift the coordinate system such that our fish is at the center.
+
+Or models then try to predict the product of a vector in direction of the heading change and the kick length.
+This correspond to the kick trajectory in our new coordinate system.
+
+As features we use a discretized position and the angle of the other fish.
+The position is discretized using adaptive spatial bins that are constructed by\(\cdots\).
+
+
+One hot encoidng, alternatively encode x and y seperately, unfair to linear model.
+
+\subsection{First linear model}
+
+\subsection{Adding a time dependence}
+
+\subsection{Adding non-linear effects}
+
+\section{Implementation \textit{\&} Training Details}
+
+\section{Evaluation}
+
+\section{Conclusion}
+
+\end{document}
