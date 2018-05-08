@@ -35,7 +35,6 @@
 % \usepackage{graphicx} % allow embedded images
 %   \setkeys{Gin}{width=\linewidth,totalheight=\textheight,keepaspectratio}
 %   \graphicspath{{graphics/}} % set of paths to search for images
-% \usepackage{amsmath}  % extended mathematics
 % \usepackage{booktabs} % book-quality tables
 % \usepackage{units}    % non-stacked fractions and better unit spacing
 % \usepackage{multicol} % multiple column layout facilities
@@ -88,30 +87,20 @@ We start with an simple model and refine it twice.
 Each modification drops assumptions about the behaviour and thus creates a more flexible, data-driven model.
 The models developed in the earlier steps serve as baselines for the more complicated ones.
 We can thus see whether the assumptions are correct and how important each component of the model is.
-\begin{enumerate}
-\item We start from the simple model published by Calovi et.\ al.\footnote{: Calovi et al (2017). Disentangling and modelling interactions in fish with burst-and-coast swimming}.
-It is capable of simulating one rummy-nose tetra moving in a tank, including its interaction with another fish and the boundary enclosing the arena.
 
-The model consists of two parts.
-The first part models the social information processing, that is, how the fish chooses its heading direction with respect to the environmental forces.
-The second part models the gliding after a kick and assumes that the fish moves in a straight line with decaying velocity.
-All parameters of the model are obtained directly from the data.
+We make the following contributions:
+\begin{itemize}
+\item We adapt a wall model to zebrafish.
+\item We develop an adaptive receptive field approach for efficient spatial binning.
+\item We evaluate the effect of time-dependet receptive fields.
+\item We present a recurrent neural network that can handle bi-modal predictions and captures non-linear effects.
 
-We need to adapt some details of this model to the movement of zebrafish.
-This is possible because rummy-nose tetra and juvenile zebrafish move in a similar way.
-The model makes the assumption that the direction of each kick is influenced only by the current environment of the fish.
-\item The next model drops this assumption.
-We will replace the social model by a linear spatio-temporal receptive field model.
-This model considers the movement of other fish over a certain time period.
-Practically speaking, this adds a memory to the model.
+\end{itemize}
+\section{Methods: Pre-processing \textit{\&} Models}
 
-We hope that this will result in a model that reflects the biological reality more closely.
-\item As a next step, the simple receptive field model will be replaced by a more general one, using a neural network.
-This type of model still has a memory but additionally is able to approximate a larger family of functions.
-Due to the strong non-linearity this model is hard to interpret but able to capture complex, possible non-linear behaviour.
-\end{enumerate}
+\subsection{Discrete Motion}
 
-\section{Models}
+\subsection{Wall forces}
 We begin with the modeling of wall-forces.
 We follow the modeling approach of~\autocite{calovi} and describe the influence of a wall on the heading change \(\delta \phi_w\) as
 \begin{equation*}
@@ -148,22 +137,86 @@ We then shift the coordinate system such that our fish is at the center.
 Or models then try to predict the product of a vector in direction of the heading change and the kick length.
 This correspond to the kick trajectory in our new coordinate system.
 
-As features we use a discretized position and the angle of the other fish.
 The position is discretized using adaptive spatial bins that are constructed by\(\cdots\).
-
-
-One hot encoidng, alternatively encode x and y seperately, unfair to linear model.
+\marginnote{This can be generalized to multiple fish by interpreting the features as number of fish per bin and mean relative angle per bin.}
+This categorical feature bin is converted using one-hot-encoding to a feature vector.
+We additionally use the relative angle of the other fish multiplied with the aforementioned spatial feature.
 
 \subsection{First linear model}
+We begin with a basic linear model.
+The linear model for a component \(i\) of our target vector \(\hat{\bm{y}}\) can be written as
+\begin{equation*}
+ \left( Y^i | \bm{\beta}^{i} \right)  \sim \mathcal{N} \left( \bm{X^i} \bm{\beta^i}, \sigma^2 \bm{I_{n \times p}}  \right),
+\end{equation*}
+where X is the design matrix.
+In the following discussion we will drop the superscript for the component and describe the computation for one vector component without loss of generality.
 
 \subsection{Adding a time dependence}
+We now add a time-dependence to our model.
+To do this, we extract some time window before each kick.
+For our experiments we use time steps of \(\SI{0}{\s}, \SI{0.05}{s}, \ldots, \SI{0.25}{\s}\), which goes back roughly to the beginning of the last kick.
+
+We consider two more models here.
+For the first one we simply concatenate all features \(\beta_{i, t}\) for all timesteps \(t\).
+This results in a very large number of parameters (\(\text{num. timesteps } \times \text{ num. bins}\)).
+
+Alternatively, we can use the same spatial weights for each bin (i.e\ \( \forall t_1, t_2: \beta_{i, t_1} = \beta_{i, t_2}\)).
+We then introduce a parameter \(c_t\) for each timestep and then use $c_t \beta_{i,t}$ as our parameters.
+For consistency, we normalize all \(c_t\) such that they sum to unity.
+
 
 \subsection{Adding non-linear effects}
+As a final model we present a recurrent-neural network that predicts a full distribution for \(\left( \bm{y} | \bm{\beta} \right)\).
+To do this, we write our prediction for
+\begin{equation*}
+p \left( \bm{y} | \bm{\beta} \right) = \sum_{i}^n \pi_i \mathcal{N} \left( \bm{\mu_i}, \bm{\Sigma_i} \right),
+\end{equation*}
+where \(\pi_i, \mu_i, \Sigma_i\) are the parameters for a mixture of Gaussians with \(k\) components.
+We follow the description of prior work\autocite{mdn} but use multivariate Gaussians with non-diagonal covariance as mixture components.
+
+These parameters are predicted for each target variable seperately by our neural network.
+We now write the covariance matrix as
+\begin{equation*}
+  \bm{\Sigma_i} = \bm{L_i} \bm{L_i^T} =
+  \begin{bmatrix}
+    a_i^2 & a_ib_i \\
+    a_ib_i & b_i^2 + c_i^2
+  \end{bmatrix} ,\quad
+   \text{with } \bm{L} =
+   \begin{bmatrix}
+     a_i & 0 \\
+     b_i & c_i
+   \end{bmatrix},
+\end{equation*}
+which corresponds to the Cholesky decomposition of \(\bm{\Sigma_i}\).
+
+We now need to apply the following constraints to the parameters to achieve a valid configuration:
+\begin{itemize}
+\item The mixing coefficients need to be positive and have to sum to one.
+  This is achieved by using the \textit{softmax} non-linearity.
+\item The diagonals of all \(\bm{L}_i\) need to be larger than zero.
+  To do this we apply the \textit{softplus} non-linearity and add a small \(\varepsilon = 10^{-4}\) for numerical stability\footnote{This regularization reduces the condition number of \(\bm{\Sigma_i}\) by increasing the value of its minimal eigenvalue.}. % maybe cite this master's thesis?
+  Using the fact that a matrix has an invertible Cholesky decomposition with positive diagonal elements iff.\ it is positive definite and Hermetian,
+  the resulting matrix \(\bm{\Sigma_i}\) is a valid non-singular covariance matrix.
+\end{itemize}
+All other parameters can have arbitrary values.
+
+
 
 \section{Implementation \textit{\&} Training Details}
+All neural networks were developed with PyTorch.
+We use Adam with a learning rate of $0.01$, exponentially decayed (by ...) with a weight decay of 1e-4.
+
 
 \section{Evaluation}
+% TODO: The following is not true!
+%\marginnote{We can compare the log-likelihood of our models because they are \textit{nested} models, i.e.\ each model is a non-regularized \textsc{RNN} predicting parameters of mixtures of Gaussians with certain restrictions on the parameters.}
+We compare the models by the log-likelihood on the training and testing set.
+This comparison captures the whole predictive distribution and not only the mean prediction.
+In this way we take uncertainty into account.
+Note that it is not straight-forward to use more complicated methods such as log-likelihood ratio or the Akaike information criterion because we cannot estimate the number of degrees of freedom for penalized recurrent neural network models.
 
 \section{Conclusion}
 
+\printbibliography
 \end{document}
