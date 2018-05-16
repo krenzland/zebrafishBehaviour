@@ -137,11 +137,10 @@ def interpolate_invalid(df):
     df.loc[:, 'dropped'] = dropped
     return df
 
-def smooth_vector(x, window_length=15): #window was 49 sometime
-    # TODO: Double check whether window_length correspond to a reasonable timeframe!
+def smooth_vector(x, window_length=15):
     degree = 3
     
-    x = signal.savgol_filter(x, window_length=window_length, polyorder=degree, mode='constant', deriv=0) # TODO: Check
+    x = signal.savgol_filter(x, window_length=window_length, polyorder=degree, mode='constant', deriv=0)
     x_deriv = signal.savgol_filter(x, window_length=window_length, polyorder=degree, mode='constant', delta=0.01, deriv=1)
 
     return x, x_deriv
@@ -256,7 +255,9 @@ def summarise_kicks(pos, acc, status, dropped, time):
         end = len(crossings) - 1
     else:
         end = len(crossings)
+
     events = crossings[begin:end].reshape(-1, 2)
+    # Following assertion has to hold for valid segmentation.
     assert(np.all(acc[events[:,0]] > 0.))
 
     end_times = events[1:,0]
@@ -266,7 +267,6 @@ def summarise_kicks(pos, acc, status, dropped, time):
 
 
     # End times are beginning of new events
-    # TODO: Off by one error?
     while True:
         # Fuse short gliding phases with previous kick
         gliding_duration = events[:,3]
@@ -274,7 +274,6 @@ def summarise_kicks(pos, acc, status, dropped, time):
         kicks_after = short_gliding + 1
 
         valid_idx = kicks_after < events.shape[0]  # make sure kick exists
-        # TODO: If kick after our problematic kick doesn't exist, delete our kick
 
         short_gliding = short_gliding[valid_idx]
         kicks_after = kicks_after[valid_idx]
@@ -293,9 +292,6 @@ def summarise_kicks(pos, acc, status, dropped, time):
 
         # Now discard the kicks that were fused.
         events = np.delete(events, short_gliding, axis=0)
-        # print()
-        # print(len(short_gliding))
-        # print(events.shape[0])
 
     # Finally discard all acceleration events that are short than a threshold
     acceleration_duration = events[:,2] - events[:,3]
@@ -318,28 +314,29 @@ def get_wall_influence(orientation, point, bounding_box):
         return np.abs(distance_offset[wall_id] - [point[axis]] )
 
     distances = np.array([ dist_to_wall(point, i) for i in range(4) ]).reshape(-1)
-    # Orientation is calculated w.r.t. to [1, 0] by me.
+    # Orientation is calculated w.r.t. to [1, 0] here.
     relative_angles = add_angles(wall_angles, -orientation)
     return distances, relative_angles
 
-def calc_angles(kick, pos_0, pos_1, angles_0, angles_1, vel_0, bounding_box, valid, fish_mapping, num_past_window=2, verbose=False):
+def calc_angles(kick, pos_0, pos_1, angles_0, angles_1, vel_0, bounding_box, valid, fish_mapping, verbose=False):
     x_axis = np.array([1, 0]) # Used as a common reference for angles.
+    dts = np.arange(start=0, stop=35, step=5)
 
     start, end, duration, gliding_duration = kick
     start, end = int(start), int(end)
     gliding_start = end - int(gliding_duration*100)
 
     # Check if we have enough information about the past.
-    if start - num_past_window < 0:
+    if start - dts[-1] < 0:
         return None
 
     # Discard entire kick if it would use information from invalid frames.
-    if not np.all(valid[start-num_past_window:end+1]):
+    if not np.all(valid[start-dts[-1]:end+1]):
         return None
 
     kick_information = None
     rows = []
-    for dt in range(num_past_window+1):
+    for dt in dts:
         pos_f0 = np.array([ pos_0[0][start - dt], pos_0[1][start - dt] ])
         pos_f1 = np.array([ pos_1[0][start - dt], pos_1[1][start - dt] ])
 
@@ -350,18 +347,12 @@ def calc_angles(kick, pos_0, pos_1, angles_0, angles_1, vel_0, bounding_box, val
         if dt == 0:
             traj_kick = np.array([ pos_0[0][end], pos_0[1][end] ]) - pos_f0
             kick_len = np.linalg.norm(traj_kick)
-            # TODO: Fix potential off by one error here.
-            kick_max_vel = np.max(vel_0[start:end+1])
-            end_vel = vel_0[end]#np.min(vel_0[start:end])
-            if end_vel < 0.0:
-                print("End vel < 0!")
+            kick_max_vel = np.max(vel_0[start:end])
+            end_vel = vel_0[end]
             heading_change = sub_angles(angles_0[end], angles_0[start])
             heading_change_acc = sub_angles(angles_0[gliding_start], angles_0[start])
 
             kick_information = np.array( [ fish_mapping[0], heading_change, heading_change_acc, duration, gliding_duration, kick_len, kick_max_vel, end_vel] )
-            # TODO: Check validity for all timesteps in kick!
-            if not valid[start]:
-                return None
 
         if not valid[start - dt]:
             return None
@@ -400,7 +391,6 @@ def calc_angles(kick, pos_0, pos_1, angles_0, angles_1, vel_0, bounding_box, val
 
         wall_information = np.concatenate( (wall_distance_0, wall_angle_0, wall_distance_1, wall_angle_1) )
 
-
         row = np.concatenate(([dt], kick_information, social_information, wall_information))
         rows.append(row)
 
@@ -421,12 +411,12 @@ def calc_angles_df(df, fish_names, bounding_box):
     valid = (df['status'] != 'stopping') & (~df['dropped'])
 
     angles = []
-    # TODO: Use smoothed speed here or better not?
+    # Don't use smoothed speed here, it isn't advantageous. Velocities aren't used for the core model anyway.
     for kick in kicks0:
-        angles.append(calc_angles(kick, pos0, pos1, df['angle_f0'], df['angle_f1'], df['speed_f0'], bounding_box, valid, fish_mapping=fish_names, verbose=False))
+        angles.append(calc_angles(kick, pos0, pos1, df['angle_f0'], df['angle_f1'], df['speed_f0'], bounding_box, valid, fish_mapping=fish_names))
 
     for kick in kicks1:
-        angles.append(calc_angles(kick, pos1, pos0, df['angle_f1'], df['angle_f0'], df['speed_f1'], bounding_box, valid, fish_mapping=fish_names[::-1], verbose=False))
+        angles.append(calc_angles(kick, pos1, pos0, df['angle_f1'], df['angle_f0'], df['speed_f1'], bounding_box, valid, fish_mapping=fish_names[::-1]))
 
     # Remove invalid kicks
     angles = np.concatenate([a for a in angles if a is not None])
@@ -441,10 +431,12 @@ def calc_angles_df(df, fish_names, bounding_box):
     return df_kicks
 
 def main():
+    # Catch pandas assigment errors.
     pd.options.mode.chained_assignment = 'raise'
+
     # Constants
     BODY_LENGTH = 1.0 # cm
-    SWIMMING_THRESHOLD = 0.5/BODY_LENGTH
+    SWIMMING_THRESHOLD = 0.5/BODY_LENGTH # smaller than this is considered pausing
 
     # {} in csv is placeholder for train/test.
     csv_cleaned = '../data/processed/cleaned_guy_{}.csv'
@@ -482,9 +474,12 @@ def main():
                         min(full_df['y_f0'].min(), full_df['y_f1'].min()), max(full_df['y_f0'].max(), full_df['y_f1'].max()))
         print(f"Computed bounding box {bounding_box}.")
 
-        # Perform train test-split here.
-        # TODO: Take first 80% for half of data, final 80% for other half to avoid bias.
-        for df, subset_name in zip(cv.train_test_split(full_df, train_size=0.8, test_size=0.2, shuffle=False), ['train', 'test']):
+        # Perform train test-split here:
+        # Take first 80% for half of data, final 80% for other half to avoid bias.
+        iterator = list(zip(cv.train_test_split(full_df, train_size=0.8, test_size=0.2, shuffle=False), ['train', 'test'])) 
+        if i > (len(csv_paths)//2 - 1):
+            iterator = iterator[::-1]
+        for df, subset_name in iterator:
             # Fix index of dataframe (corrupted by splitting.)
             df.index = range(0, len(df))
 

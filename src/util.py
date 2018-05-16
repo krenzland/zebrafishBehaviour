@@ -1,6 +1,7 @@
 import numpy as np
 from numba import jit
 
+x_axis = np.array([1.,0])
 
 # angle_between from https://stackoverflow.com/a/13849249
 @jit
@@ -42,3 +43,9 @@ def clip_angle(angle):
     while angle > np.pi:
         angle -= 2*np.pi
     return angle
+
+def get_rotation_matrix(angle):
+    c = np.cos(angle)
+    s = np.sin(angle)
+    R = np.array([c, -s, s, c]).reshape(2,2)
+    return R

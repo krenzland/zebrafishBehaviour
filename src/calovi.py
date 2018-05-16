@@ -23,14 +23,14 @@ class KickModel:
         return self.velocity_decay_time
 
 class WallModel:
-    angular_map = {'calovi': lambda angle, p1, p2: np.sin(angle) * (1 + p1 * np.cos(2*angle) + p2*np.cos(4*angle) ),
+    angular_map = {'calovi': lambda angle, p1: np.sin(angle) * (1 + p1 * np.cos(2*angle)),
                    'sin': lambda angle, p1, p2, p3: p1 * np.sin(angle) + p2 * np.sin( 2 * angle ) + p3 * np.sin( 3* angle),
                    'sin-cos': lambda angle, a1, a2, b1, b2 : (a1 * np.sin(angle) + a2 * np.sin(2*angle)) * \
                    (b1 * np.cos(angle) + b2 * np.cos(2*angle) + 1),
                    'shifted-sin-cos': lambda angle, a1, a2, b1, b2:
                    (a1 * np.cos(angle) + a2 * np.sin(2 * (angle + np.pi/2))) *
                    (-b1 * np.sin(angle) + b2 * np.cos(2 * (angle + np.pi/2))+ 1)}
-    params_map = {'calovi': np.array([1, 6.0, 0.7, 0.0]),
+    params_map = {'calovi': np.array([1, 6.0, 0.7]),
                   'sin':  np.array([1, 6.0, 0.7, 0.0, 0.0]),
                   'sin-cos': np.array([1, 6.0, 0.7, 0.0, 0.0, 0.0]),
                   'shifted-sin-cos': np.array([1, 6.0, 0.7, 0.0, 0.0, 0.0])}
@@ -82,8 +82,8 @@ class SocialModel:
     def __init__(self, num_fourier=2):
         self.num_fourier = num_fourier
         # TODO: Find better initial values.
-        params = np.hstack((np.array([0.3, 2.0,1.0]), np.array([1.0] * 3), \
-                                 np.zeros(num_fourier * 4)))
+        params = np.hstack((np.array([0.3, 2.0,1.0]), np.array([1.0] * 3),
+                            np.zeros(num_fourier * 4)))
         # Raw functions
         self._f_att = lambda dist, p1, p2, s: s * (dist - p1)/(1 + (dist/p2)**2)
         self._f_ali = lambda dist, p1, p2, s: s * (dist + p1) * np.exp(-(dist/p2)**2)
@@ -157,12 +157,12 @@ class Calovi:
 
     def is_inside_arena(self, position):
         x_min, x_max, y_min, y_max = self.bounding_box
-        return position[0] > x_min and position[0] < x_max and \
-            position[1] > y_min and position[1] < y_max
+        return x_min < position[0] < x_max and \
+               y_min < position[1] < y_max
     
     def update_environment(self):
-        self.wall_distances, self.wall_angles = get_wall_influence(self.heading, self.position, \
-                                                                    self.bounding_box)
+        self.wall_distances, self.wall_angles = get_wall_influence(self.heading, self.position,
+                                                                   self.bounding_box)
     
     def kick(self):
         # First we need to update all distances angles.
