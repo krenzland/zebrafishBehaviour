@@ -96,9 +96,40 @@ We make the following contributions:
 \item We present a recurrent neural network that can handle bi-modal predictions and captures non-linear effects.
 
 \end{itemize}
-\section{Methods: Pre-processing \textit{\&} Models}
+\section{Pre-Processing}
 
 \subsection{Discrete Motion}
+The movement of zebrafish can be described by discrete models that assume that the fish moves in a piece-wise linear fashion.
+After choosing a heading direction, the fish kicks off and moves in an approximately straight line.
+We are interested in modelling the trajectory, which consist of heading change and length of heading, for each kick.
+To fully describe the motion we also present simple models for duration and kick speed.
+
+We need to segment the fish motion into kicks first.
+The raw data consists of the positions of both fish, their orientation relative to the x-axis, and time.
+We mark frames that caused problems for the tracking system, for example when the identity of both fish was confused, as invalid.
+The video data has roughly 100 frames per second, the time between frames is slightly irregular.
+We convert the video to a constant framerate by iterating over the frames and insert frames between them if the time between frames differs by more than 0.005 seconds from a constant framerate.
+These inserted frames are marked invalid as well.
+
+The velocity is computed by finite differences between timepoints.
+We then smooth the velocity by a Savgol filter with window length of 15 frames and a polynomial order of three.
+This filter uses a local polynomial approximation, it is also used to compute the derivative of the velocity.
+If fish move slower than CONSTANT for CONSTANT s, they are marked as stopped.
+Frames in that area are marked as invalid.
+We do this because we are interested in swimming behavior.
+
+We then use the zero crossing of this smoothed acceleration to mark instances, where the fish moves from accelerating to gliding.
+One acceleration and gliding phase is then combined to form a kick.
+If an acceleration or gliding phase is shorter than a treshold\todo{Name it} the phase is moved into the previous one.
+
+% kick_columns = [ 'fish_id', 'heading_change', 'heading_change_acc', 'duration', 'gliding_duration', 'length', 'max_vel', 'end_vel']
+% social_columns = ['neighbor_distance', 'neighbor_angle', 'geometric_leader', 'viewing_angle_ltf', 'viewing_angle_ftl', 'rel_orientation',
+%                     'x_f0', 'y_f0', 'x_f1', 'y_f1', 'angle_f0', 'angle_f1']
+% wall_columns = [ f"wall_{type}{wall}_{id}" for id, type, wall in product( ['f0', 'f1'], ['distance', 'angle'],[0,1,2,3] )]
+
+We then extract the heading change, length, maximum velocity for each kick.
+Additionally, we extract the positions and angles of both fish and the distance and angles towards the wall for both fish for the kick and timesteps before it.
+We include this data for the timesteps \(0, 5, \ldots, 30 \).
 
 \subsection{Wall forces}
 We begin with the modeling of wall-forces.
@@ -140,13 +171,20 @@ This correspond to the kick trajectory in our new coordinate system.
 The position is discretized using adaptive spatial bins that are constructed by\(\cdots\).
 \marginnote{This can be generalized to multiple fish by interpreting the features as number of fish per bin and mean relative angle per bin.}
 This categorical feature bin is converted using one-hot-encoding to a feature vector.
-We additionally use the relative angle of the other fish multiplied with the aforementioned spatial feature.
+We additionally use the standarized relative trajectory of the other fish multiplied with the aforementioned spatial feature.
+
+\section{Social Models}
+We are now ready to model the social behaviour of zebrafish.
+Here, we only consider the situation with one other fish for reasons of simplicity.
+Note that the approaches developed here can all be easily extended to larger fish groups.
+We start with a simple linear model.
+This model is then refined twice by adding memory and non-linear effects.
 
 \subsection{First linear model}
 We begin with a basic linear model.
 The linear model for a component \(i\) of our target vector \(\hat{\bm{y}}\) can be written as
 \begin{equation*}
- \left( Y^i | \bm{\beta}^{i} \right)  \sim \mathcal{N} \left( \bm{X^i} \bm{\beta^i}, \sigma^2 \bm{I_{n \times p}}  \right),
+ \left( Y^i | \bm{\beta}^{i} \right)  \sim \mathcal{N} \left( \bm{X^i} \bm{\beta^i} + \text{ bias}, \sigma^2 \bm{I_{n \times p}}  \right),
 \end{equation*}
 where X is the design matrix.
 In the following discussion we will drop the superscript for the component and describe the computation for one vector component without loss of generality.
@@ -164,18 +202,30 @@ Alternatively, we can use the same spatial weights for each bin (i.e\ \( \forall
 We then introduce a parameter \(c_t\) for each timestep and then use $c_t \beta_{i,t}$ as our parameters.
 For consistency, we normalize all \(c_t\) such that they sum to unity.
 
-
 \subsection{Adding non-linear effects}
 As a final model we present a recurrent-neural network that predicts a full distribution for \(\left( \bm{y} | \bm{\beta} \right)\).
-To do this, we write our prediction for
+We start by describing an encoder, which transforms the input features to a hidden state, and a decoder, which then transforms the hidden state into the output values.
+The complete model is then an arbitrary combination of presented encoders and decoders.
+
+We describe two simple encoders:
+\begin{itemize}
+\item The simplest (non-linear) choice is a multilayer-perceptron.
+  In our case we use a 
+\end{itemize}
+
+
+We follow the basic idea of \textit{mixture density networks}\autocite{mdn} but use multivariate Gaussians with non-diagonal covariance as mixture components.
+To do this, we write our prediction as
 \begin{equation*}
 p \left( \bm{y} | \bm{\beta} \right) = \sum_{i}^n \pi_i \mathcal{N} \left( \bm{\mu_i}, \bm{\Sigma_i} \right),
 \end{equation*}
-where \(\pi_i, \mu_i, \Sigma_i\) are the parameters for a mixture of Gaussians with \(k\) components.
-We follow the description of prior work\autocite{mdn} but use multivariate Gaussians with non-diagonal covariance as mixture components.
+where \(\pi_i, \bm{\mu_i}, \bm{\Sigma_i}\) are the parameters for a mixture of Gaussians with \(k\) components and \(\mathcal{N}(\bm{\mu}, \bm{\Sigma_i})\) is a multivariate normal distribution 
 
-These parameters are predicted for each target variable seperately by our neural network.
-We now write the covariance matrix as
+These parameters are predicted for each target seperately by our neural network.
+We will now derive necessary conditions that have to hold for the parameters and describe how our network output satisfies them.
+Note that we can write the Cholesky decomposition
+\footnote{This decomposition always exists for invertible covariance matrices as they are by definition positive-semidefinite and symmetric.}
+of the covariance matrix \(\bm{\Sigma_i}\) as
 \begin{equation*}
   \bm{\Sigma_i} = \bm{L_i} \bm{L_i^T} =
   \begin{bmatrix}
@@ -186,37 +236,73 @@ We now write the covariance matrix as
    \begin{bmatrix}
      a_i & 0 \\
      b_i & c_i
-   \end{bmatrix},
+   \end{bmatrix}.
 \end{equation*}
-which corresponds to the Cholesky decomposition of \(\bm{\Sigma_i}\).
-
-We now need to apply the following constraints to the parameters to achieve a valid configuration:
+We then have to fulfil the following constraints:
 \begin{itemize}
-\item The mixing coefficients need to be positive and have to sum to one.
-  This is achieved by using the \textit{softmax} non-linearity.
 \item The diagonals of all \(\bm{L}_i\) need to be larger than zero.
-  To do this we apply the \textit{softplus} non-linearity and add a small \(\varepsilon = 10^{-4}\) for numerical stability\footnote{This regularization reduces the condition number of \(\bm{\Sigma_i}\) by increasing the value of its minimal eigenvalue.}. % maybe cite this master's thesis?
+  To do this we apply the \textit{softplus} non-linearity
+  \begin{equation*}
+   \operatorname{Softplus} (\bm{x}) = \log \left( 1 + \exp (\bm{x}) \right).
+  \end{equation*}
+  We add a small \(\varepsilon = 10^{-4}\) for numerical stability
+  \footnote{This regularization reduces the condition number of \(\bm{\Sigma_i}\) by increasing the value of its minimal eigenvalue.
+  Additionally it ensures that the variance has a minimal value and thus avoids degenerate distributions.}. % maybe cite this master's thesis?
   Using the fact that a matrix has an invertible Cholesky decomposition with positive diagonal elements iff.\ it is positive definite and Hermetian,
   the resulting matrix \(\bm{\Sigma_i}\) is a valid non-singular covariance matrix.
+\item The mixing coefficients need to be positive and have to sum to one.
+  This is achieved by using the \textit{softmax} non-linearity
+  \begin{equation*}
+    \operatorname{Softmax} (x_i) = \frac{\exp (x_i)}{\sum_j \exp (x_j)},
+  \end{equation*}
+  where \(x_i\) is one component of the output vector.
 \end{itemize}
 All other parameters can have arbitrary values.
-
+We predict the Gaussian mixture parameters each by computing a linear transformation of the hidden state of the encoder followed by the appropiate non-linearity.
 
 
 \section{Implementation \textit{\&} Training Details}
 All neural networks were developed with PyTorch.
-We use Adam with a learning rate of $0.01$, exponentially decayed (by ...) with a weight decay of 1e-4.
+We use Adam with a learning rate of 0.01, exponentially decayed (by ...) with a weight decay of 0.001.
+Encoders and decoders are jointly trained.
 
+The other linear models were trained with \textbf{scikit-learn}\autocite{scikitLearn}.
+We used a grid search over the regularization parameters and chose the best w.r.t.\ the average cross-validation error.
 
 \section{Evaluation}
 % TODO: The following is not true!
 %\marginnote{We can compare the log-likelihood of our models because they are \textit{nested} models, i.e.\ each model is a non-regularized \textsc{RNN} predicting parameters of mixtures of Gaussians with certain restrictions on the parameters.}
+We start by comparing the angle prediction from the wall model.
+It is not wise to compare the mean-squared-error or similar metrics because they do not take the cyclical nature of angles into account.
+For example, the angles 0 and 360 degrees are identical.
+% Angle error, https://stats.stackexchange.com/questions/197639/calculating-goodness-of-fit-for-circular-data
+We use the absolute difference between two vectors of angles \(\bm{\alpha}, \bm{\beta}\)
+\begin{equation*}
+ \operatorname{Angle-Error}(\bm{\alpha}, \bm{\beta}) = \operatorname{arctan2} \left( \sum_i \sin \left( \alpha_i - \beta_i  \right),  \sum_i \sin \left( \alpha_i - \beta_i \right)  \right),
+\end{equation*}
+which is zero if both angles are identical~\autocite{circularStatistics}.
+Predicting the average angle (defined by \todo{what?}) leads to an error of xxx, using our model of xxx.
+This error was estimated over the complete training and testing datasets.
+
 We compare the models by the log-likelihood on the training and testing set.
+As mentioned in chaper xxx, both datasets are restricted to situations with neglible wall-force.
 This comparison captures the whole predictive distribution and not only the mean prediction.
-In this way we take uncertainty into account.
-Note that it is not straight-forward to use more complicated methods such as log-likelihood ratio or the Akaike information criterion because we cannot estimate the number of degrees of freedom for penalized recurrent neural network models.
+In this way we take the uncertainty of the predictions into account.
+Note that it is not straight-forward to use more complicated methods such as log-likelihood ratio or the Akaike information criterion because we cannot estimate the number of degrees of freedoms for penalized recurrent neural network models.
+
+The results for the social models can be seen in table xxx.
+
 
 \section{Conclusion}
+We presented different models for the behaviour of zebrafish.
+
+Even though extending the models with a temporal and non-linear component did not show significant improvements, we think that the approaches are promising.
+\begin{itemize}
+\item The adaptive spatial discretization presented here results in a more equal distribution of fish.
+\item Because the social models do not use properties of other animals directly but rather model the mean features per bin they extend trivially to larger animal groups, without changing the statistical models or the spatial discretization.
+  This extension is harder for force-based models and usually require extensive modifications.
+\item The explicit modelling of probability distributions allows us to sample from the trajectory distribution conditioned on the social surroundings and is able to predict bimodal distributions.
+\end{itemize}
 
 \printbibliography
 \end{document}
