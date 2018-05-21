@@ -171,7 +171,7 @@ def main():
     scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=args.lr_decay)
 
     # Training loop
-    for epoch in range(args.epochs):
+    for epoch in range(1,args.epochs+1):
         model.train()
         loss_sum = 0.0
         loss_norm = 0

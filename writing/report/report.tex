@@ -9,7 +9,10 @@
 \usepackage[
   style=verbose,
   autocite=footnote,
-  backend=biber
+  backend=biber,
+  doi=false,
+  isbn=false,
+  url=false
 ]{biblatex}
 \addbibresource{../bibliography.bib}
 
@@ -25,12 +28,19 @@
 \newcommand{\creflastconjunction}{, and\nobreakspace} % use Oxford comma
 \usepackage{todonotes}
 \usepackage{multimedia}
+\usepackage{booktabs}
+\newrobustcmd*{\bftabnum}{%
+  \bfseries
+  \sisetup{output-decimal-marker={\textmd{.}}}%
+}
+
 \usepackage{algorithm,algorithmicx}
 \usepackage[noend]{algpseudocode}
 \newcommand*\Let[2]{\State #1 \(\gets\) #2}
 \algrenewcommand\algorithmicrequire{\textbf{Input: }}
 \algrenewcommand\algorithmicensure{\textbf{Helper functions: }}
 
+\usepackage{phaistos} % for fish symbol
 \usepackage{tikz}
 \usetikzlibrary{arrows, positioning, shapes.geometric}
 \usetikzlibrary{calc}
@@ -107,15 +117,25 @@ Before we can dive into the modelling, we need to massage the data into an appro
 This pre-processing stage is described in this chapter.
 We first extract motion features from positions and orientations extracted by a video tracking software.
 Then we segment the continous motion into discrete kicks.
+All steps mentioned thus far follow the protocol of \citeauthor{calovi}\autocite{calovi}.
 We segue into a description of a simple wall model.
 We consider this to be a part of the pre-processing stage because we use it to filter the data to areas with weak wall influence.
 This chapter closes with a description of our receptive field features that are a flexible representation of the surroundings of the animals.
 
 \subsection{Experimental Setup \textit{\&} Input Data}
+\begin{marginfigure}
+\includegraphics[width=\columnwidth]{tracked_frame}
+\caption{Example frame of the tracked video.
+  Shown is the \(\SI{30}{\cm} \times \SI{30}{\cm}\) large arena with two fish.
+  The red and green lines show the fish trajectories that were estimated by the tracking software.
+\label{fig:arena}}
+\end{marginfigure}
 We use data obtained from ten experiments.
 In each experiment two fish swam for one hour in a \(\SI{30}{\m} \times \SI{30}{\m}\) tank, enclosed by a four straight walls.
 The motion was captured by a camera and was tagged by a video tracking software.
+An example for the experimental situation can be seen in figure~\ref{fig:arena}.
 The raw data consists of the positions of both fish, their orientation relative to the x-axis, and time.
+
 
 We mark frames that caused problems for the tracking system, for example when the identity of both fish was confused, as invalid.
 The video data has roughly 100 frames per second, the time between frames is slightly irregular.
@@ -156,6 +176,26 @@ We then extract the heading change, length, maximum velocity for each kick.
 Additionally, we extract the positions and angles of both fish and the distance and angles towards the wall for both fish for the kick and timesteps before it.
 We include this data for the timesteps \(0, 5, \ldots, 35 \).
 
+\begin{marginfigure}
+    \centering
+\begin{tikzpicture}[scale=0.5]
+\draw[] (3, 3)--(5,5); % our fish at t
+\node[rotate=45] at (4.5,4.5) {\textcolor{red}\PHtunny}; % head
+
+\draw[gray] (3.0, 0)--(3.0, 3.0); % fish at t - 1
+\node[rotate=90] at (3.0,2.5) {\textcolor{gray}\PHtunny}; % fish at t -1
+
+\draw [red,very thick] (3.0, 1.0) arc (-90:45:2);
+\node[rotate=45] at (3.8, 2.5) {\large$\delta\phi$};
+\end{tikzpicture} 
+\caption{Heading change}
+\label{fig:goal}
+\end{marginfigure}
+
+This paper is concerned with the prediction of the relative change in orientation between the start and end of each kick (figure~\ref{fig:goal}).
+The social models also predict the length of each kick.
+We do not model the duration of the kicks, we rather draw them from a Gaussian mixture kernel density estimate fit to the experimental data.
+
 \subsection{Wall forces}
 We begin with the modeling of wall-forces.
 We follow a force-based modeling approach and describe the influence of a wall on the heading change \(\delta \phi_w\) as
@@ -163,19 +203,19 @@ We follow a force-based modeling approach and describe the influence of a wall o
   \delta \phi_w (r_w, \theta_w) = f(r_w)O_w(\theta_w),
 \end{equation*}
 where $r_w$ corresponds to the distance to the wall and $\theta$ is the relative angle of the fish towars the wall~\autocite{calovi}.
-We split the wall influence into an exponential decaying force term \(f_w\) and an odd angular-response function \(O_w\)
+We split the wall influence into an exponentially decaying force term \(f_w\) and an odd angular-response function \(O_w\)
 %todo: multiply by a constant
 \begin{align*}
   f(r_w) &= \exp \left( -{(r_w/l_w)}^2 \right), \\
   O(\theta_w) &= \left(a_1 \sin(\theta_w) + a_2 \sin(2  \theta_w)  \right)  \left(1 +  b_1  \cos(\theta_w) + b_2 \cos(2  \theta_w) \right),
 \end{align*}
 where $l_w, a_1, a_2, b_1 \text{ and } b_2$ are parameters.
-Note that we use a different series expansion for the odd angular function \(O_w\)%
+Note that we use a different series expansion for the odd angular function \(O_w\).%
 \footnote{Their proposed form does not work in our case.
-  The reason for this could be that they consider both a different species and a round wall.}.
+  The reason for this could be that they consider both a different species and a round wall.}
 Finally, we consider the closest two walls and sum over the influences
 \begin{equation*}
- \delta \phi_w^{\text{total}} \left( \bm{r_w}, \bm{\theta_w} \right) = \sum_{i \in 2 \text{ closest walls}} \delta \phi_w^i (r_w^i, \theta_w^i).
+ \delta \phi_w^{\text{total}} \left( \bm{r_w}, \bm{\theta_w} \right) = \sum_{i \in 2 \text{ closest walls}} \delta \phi_w (r_w^i, \theta_w^i).
 \end{equation*}
 The parameters are fit by minimizing the mean-squared error of heading change prediction using gradient-descent.
 % todo: we do not actually use gradient descent but something different.
@@ -243,14 +283,25 @@ We additionally use the standarized relative trajectory of the other fish multip
 We are now ready to model the social behaviour of zebrafish.
 Note that the approaches developed here can all be easily extended to larger fish groups.
 Our target variable for all models is the relative kick trajectory in the local coordinate system described in the previous section.
-We thus model heading change and distance jointly%
+We thus model heading change and distance jointly.%
 \footnote{This approach has two advantages.
   Firstly, we avoid dealing with cyclic data (as angles are).
-Secondly, all target variables (i.e.\ vector components) have the same phsyical dimension and unit which makes the loss functions easier to interpret.}.
+Secondly, all target variables (i.e.\ vector components) have the same phsyical dimension and unit which makes the loss functions easier to interpret.}
 We start with a simple linear model.
 This model is then refined twice by adding memory and non-linear effects.
 
 \subsection{Linear receptive field model}
+\begin{marginfigure}
+  \begin{tikzpicture}[scale=0.5]
+   \draw[ultra thick] (0,0)--(0,5);
+   \node[rotate=45] at (4.5,4.5) {\textcolor{red}\PHtunny};
+   \node[rotate=90] at (2.5,2.5) {\PHtunny};
+   \node[rotate=90] at (2.5,0.5) {\textcolor{white}\PHtunny}; % quick hack to align stuff
+ \end{tikzpicture}
+ \caption{Situation considered here:
+ We model the heading change of the red fish given the current position and angle of the other fish.}
+\end{marginfigure}
+
 The linear model for a component \(i\) of our target vector \(\hat{\bm{y}}\) can be written as
 \begin{equation*}
  \left( Y^i | \bm{\beta}^{i} \right)  \sim \mathcal{N} \left( \bm{X^i} \bm{\beta^i} + \text{ bias}, \sigma^2 \bm{I_{n \times p}}  \right),
@@ -259,6 +310,19 @@ where X is the design matrix.
 In the following discussion we will drop the superscript for the component and describe the computation for one vector component without loss of generality.
 
 \subsection{Time dependence}
+\begin{marginfigure}
+  \begin{tikzpicture}[scale=0.5]
+   \draw[red] (3, 3)--(5,5); % our fish
+   \draw[ultra thick] (0,0)--(0,5); % wall
+   \draw[gray] (2.5, 0)--(2.5,2.5);
+   \node[rotate=45] at (4.5,4.5) {\textcolor{red}\PHtunny};
+   \node[rotate=90] at (2.5,2.5) {\PHtunny};
+   \node[rotate=90] at (2.5,0.5) {\textcolor{gray}\PHtunny};
+ \end{tikzpicture}
+ \caption{Situation considered here:
+   We model the heading change of the red fish given the trajectory of the other fish.
+ The trajectory of the red fish is implicitely encoded in the receptive field as we consider the position of the other fish in the local coordinate system at each point of red's trajectory.}
+\end{marginfigure}
 We now add a time-dependence to our model.
 To do this, we extract some time window before each kick.
 For our experiments we use time steps of \SI{0}{\s}, \SI{0.05}{s}, \ldots, \SI{0.35}{\s}, which goes back roughly to the beginning of the last kick.
@@ -278,40 +342,46 @@ The complete model is then an arbitrary combination of presented encoders and de
 
 We describe two simple encoders:
 \begin{itemize}
-\item The simplest (non-linear) choice is a multilayer-perceptron.
-  In our case we use a two layers consisting of a linear transformation, followed by the \textit{tanh} non-linearity and a dropout\autocite{dropout} of 50\%.
+\item The simplest (non-linear) choice is a multilayer-perceptron (\textsc{mlp}).
+  In our case we use a two layers consisting of a linear transformation, followed by the \textit{tanh} non-linearity and a dropout probability of 50\%\autocite{dropout} .
   The input features for this model is the receptive field for the kick-off time.
 \item
-  As a temporal model we consider a standard recurrent neural network which has an input linear transformation, and a recurrent hidden-to-hidden connection.
-  For the hidden-to-hidden connection we apply recurrent dropout.
-  This means that we sample a dropout mask and apply this to the hidden-to-hidden connections for all sequence steps instead of sampling one per step.
+  As a temporal model we consider a standard recurrent neural network (\textsc{rnn}) which has an input linear transformation, and a recurrent hidden-to-hidden connection.
+  For the hidden-to-hidden connection we apply recurrent dropout\autocite{recurrentDropout}.
+  This means that we sample a dropout mask per example and apply this to the hidden-to-hidden connections for all sequence steps instead of sampling a seperate mask for each sequence step.
+  We denote this dropout operator as \(d(\bm{x})\).
   These two layers are added and transformed with a \textit{tanh} non-linearity
   \begin{equation*}
-    \bm{h^i} (\bm{x}) = \operatorname{tanh} \left( \bm{w_{ih}} \bm{x^i} + \bm{w_{hh}} d (\bm{h^{i-1}}) \right),
+    \bm{h^i} (\bm{x}) = \operatorname{tanh} \left( \bm{b} + \bm{w_{ih}} \bm{x^i} + \bm{w_{hh}} d (\bm{h^{i-1}}) \right),
   \end{equation*}
-  where xxx.
-  We learn the initial hidden state \(h^0\) instead of using a zero-initialised state.
+  where \(\bm{w_{ih}}\) and \(\bm{w_hh}\) are the weights for the input-to-hidden and hidden-to-hidden layers respectively.
+  The parameter \(\bm{b}\) corresponds to a vector of learned biases.
+  We learn the initial hidden state \(h^0\) instead of using a zero-initialised state as it improved the speed of convergence.
+
   The input features for this models is the complete sequence of receptive fields leading to a kick.
   We use a fixed input sequence length for two reasons:
-  Firstly, this allows us to compare linear models and \textsc{rnn}-models directly.
+  Firstly, this allows us to compare the time-dependent linear models and \textsc{rnn}-models directly.
   Secondly, we avoid the assumption that a fish only considers its surroundings in the timespan between two kicks.
+  Note that we have assume that a kick is independent of the other kicks.
   \todo{Fix equation, add text}
 \end{itemize}
+We did not observe significant better results using the rectifier linear unit activation function, in fact, it lead to divergence for the \textsc{rnn} model.
 Using more neurons in the hidden layer does not achieve better results here.
 For scenarios with less sparse feature vectors such as with larger fish groups, a more complex representation might be beneficial.
-We hope that the combination of the simplicity of the models coupled with the dropout regularization leads to a highly representative compressed representations in larger layers.
+We hope that the combination of the simplicity of the models coupled with the dropout regularization leads to a highly representative compressed representations in the encoded vector.
 Note that both models (disregarding the learning initial \textsc{rnn}-state) have the same number of parameters.
 
-We follow the basic idea of \textit{mixture density networks}\autocite{mdn} but use multivariate Gaussians with non-diagonal covariance as mixture components.
+For the encoder follow the basic idea of \textit{mixture density networks} but use multivariate Gaussians with non-diagonal covariance as mixture components\autocite{mdn}.
 To do this, we write our prediction as
 \begin{equation*}
 p \left( \bm{y} | \bm{\beta} \right) = \sum_{i}^n \pi_i \mathcal{N} \left( \bm{\mu_i}, \bm{\Sigma_i} \right),
 \end{equation*}
-where \(\pi_i, \bm{\mu_i}, \bm{\Sigma_i}\) are the parameters for a mixture of Gaussians with \(k\) components and \(\mathcal{N}(\bm{\mu}, \bm{\Sigma_i})\) is a multivariate normal distribution 
+where \(\pi_i, \bm{\mu_i}, \bm{\Sigma_i}\) are the parameters (mixing coefficients, mean and covariance) for a mixture of Gaussians with \(k\) components.
+The function \(\mathcal{N}(\bm{\mu}, \bm{\Sigma_i})\) is the probability density of a multivariate normal distribution 
 
 These parameters are predicted for each target seperately by our neural network.
 We will now derive necessary conditions that have to hold for the parameters and describe how our network output satisfies them.
-Note that we can write the Cholesky decomposition
+Note that we can write the Cholesky decomposition%
 \footnote{This decomposition always exists for invertible covariance matrices as they are by definition positive-semidefinite and symmetric.}
 of the covariance matrix \(\bm{\Sigma_i}\) as
 \begin{equation*}
@@ -329,11 +399,8 @@ of the covariance matrix \(\bm{\Sigma_i}\) as
 We then have to fulfil the following constraints:
 \begin{itemize}
 \item The diagonals of all \(\bm{L}_i\) need to be larger than zero.
-  To do this we apply the \textit{softplus} non-linearity
-  \begin{equation*}
-   \operatorname{Softplus} (\bm{x}) = \log \left( 1 + \exp (\bm{x}) \right).
-  \end{equation*}
-  We add a small \(\varepsilon = 10^{-4}\) for numerical stability
+  To do this we use the \textit{exponential function} as our non-linearity
+  We add a small \(\varepsilon = \sqrt{10^{-6}}\) for numerical stability%
   \footnote{This regularization reduces the condition number of \(\bm{\Sigma_i}\) by increasing the value of its minimal eigenvalue.
   Additionally it ensures that the variance has a minimal value and thus avoids degenerate distributions.}. % maybe cite this master's thesis?
   Using the fact that a matrix has an invertible Cholesky decomposition with positive diagonal elements iff.\ it is positive definite and Hermetian,
@@ -347,25 +414,69 @@ We then have to fulfil the following constraints:
 \end{itemize}
 All other parameters can have arbitrary values.
 We predict the Gaussian mixture parameters each by computing a linear transformation of the hidden state of the encoder followed by the appropiate non-linearity.
+Using a full covariance matrix instead of a diagonal lead to no improvement for our data.
+Because a diagonal covariance matrix is conceptually simpler, we set \(b_i\) to zero for all outputs.%
+\footnote{This does not limit the capabilities of our network because a mixture of Gaussians with diagonal covariance matrices is able to approximate all non-degenerate distributions,
+  given a sufficient number of components.}
 
+We minimize the negative-log-likelihood, which is given for a vector of examples \(\bm{y}\) by
+\begin{align}
+  \label{eq:nll}
+ \mathcal{L} (\bm{y}; \bm{\pi}, \bm{\Sigma}, \bm{\mu}) &= - \log \left(  \sum_i \exp \left( \log (\bm{\pi_i}) + \log \left( \mathcal{N} (\bm{y}; \bm{\mu_i}, \bm{\Sigma_i} \right) \right) \right) \\ 
+  \intertext{with}
+  \log \left( \mathcal{N} (\bm{y}; \bm{\mu_i}, \bm{\Sigma_i}) \right) &= 
+ -\log \left( \sqrt{\pi_i^2 \vert \bm{\Sigma_i}} \vert)  \right) - 0.5 \left( (\bm{y} - \bm{\mu_i})^T \bm{\Sigma_i}^{-1} (\bm{y} - \bm{\mu_i}) \right),\nonumber
+\end{align}
+to train our models.
+In this equation, \(\vert \bm{\Sigma_i} \vert\) denotes the determinant of \(\bm{\Sigma_i}\)%
+\footnote{We compute the determinant directly from the Cholesky matrix \(\bm{L_i}\).
+  Furthermore we do not invert the covariance matrix but rather solve the equivalent linear system with forward-backward substitution using \(\bm{L_i}\) again.
+For the diagonal case, both determinant and inverse are trivial to compute and numerically stable.}.
+While this optimization problem is mathematically correct, it is suspectible to underflow.
+To rectify this we follow common advice and apply the \textit{log-sum-exp-trick} which is given by the identity
+\begin{equation*}
+  \log \left( \sum_i \exp (x_i) \right) = \max_i (x_i) + \log \left( \sum_i \exp (x_i - \max_i (x_i)) \right)
+\end{equation*}
+to compute the sum in equation~\ref{eq:nll}\autocite{mdnMaster}. .
 
 \section{Implementation \textit{\&} Training Details}
-All neural networks were developed with PyTorch.
-We use Adam with a learning rate of 0.01 and a weight decay of 0.001 to optimize our networks\autocite{adam}.
-Encoders and decoders are jointly trained.
+The linear model with identical spatial weights was implemented in \textit{PyTorch} and optimized with the \textsc{L-BGFS} optimizer until convergence.
 
-The linear model with identical spatial weights was also trained with PyTorch but with the \textsc{L-BGFS} optimizer.
+All other neural networks were also implemented in \textit{PyTorch}.
+We use stochastic gradient descent with a learning rate of 0.01 and a weight decay of 0.001 to optimize our networks.
+We apply a Nesterov momentum of 0.9
+Encoders and decoders are jointly trained.
+For training stability we clip gradients such that they have a maximum absolute value of 100.
+All weights are drawn from a normal distribution with mean 0 and standard deviation of 0.002 and all biases are set to zero.
+We train models all for 1000 epochs.
+
 
 The other linear models were trained with \textbf{scikit-learn}\autocite{scikitLearn}.
 We used a grid search over the regularization parameters and chose the best w.r.t.\ the average cross-validation error.
 
 \section{Evaluation}
-% TODO: The following is not true!
-%\marginnote{We can compare the log-likelihood of our models because they are \textit{nested} models, i.e.\ each model is a non-regularized \textsc{RNN} predicting parameters of mixtures of Gaussians with certain restrictions on the parameters.}
-We start by comparing the angle prediction from the wall model.
-Evaluating these prediction using the mean-squared-error (\textsc{mse}) or with similar metrics is not meaningful because they do not take the cyclical nature of angles into account.
-For example, a prediction of \ang{159} for an angle of \ang{0} would be near-perfect but would incur a large \textsc{mse}-loss.
-We rectify this by using results from directional statistics\autocite{circularStatistics}.
+\begin{table}[htb]
+\centering
+\caption{Results for super resolution models on Drive (Test) dataset.
+  AUC corresponds to area under the ROC curve achieved by running the retina-unet on the upscaled images.
+  Best results are bold.
+}
+
+\label{tab:results-sr-drive}
+\begin{tabular}{@{}lS[table-format=2.2]S[table-format=2.2]S[table-format=2.2]S[table-format=2.3]@{}}
+\toprule
+{Model} & {\textsc{nll}-train} & {\textsc{nll}-test} & {Angle-train} & {Angle-test} \\ \midrule
+Ground Truth & $\infty$ & 1.00 & 0.00 & 0.979 \\
+Ground Truth & $\infty$ & 1.00 & 0.00 & 0.979 \\
+Ground Truth & $\infty$ & 1.00 & 0.00 & 0.979 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+We start by comparing the angle prediction from the wall model against the baseline of always predicting the mean angle.
+Evaluating these predictions with the mean-squared-error (\textsc{mse}) or similar metrics is not meaningful because they do not take the cyclical nature of angles into account.
+For example, a prediction of \ang{179} for an angle of \ang{0} would be near-perfect but would incur a large \textsc{mse}-loss.
+We rectify this by using definitions from directional statistics\autocite{circularStatistics}.
 % Angle error, https://stats.stackexchange.com/questions/197639/calculating-goodness-of-fit-for-circular-data
 We first define the mean angle as
 \begin{equation*}
@@ -376,7 +487,7 @@ One possible way of defining an error over angles is
  \operatorname{Angle-Error}(\bm{\alpha}, \bm{\beta}) = \sum_i \operatorname{arccos} \left(  \cos  (\bm{\alpha} - \bm{\beta})  \right)_i.
 \end{equation*}
 This error is zero if both angles are identical.
-Predicting the average angle leads to an error of xxx, using our model of xxx.
+Predicting the average angle leads to an error of xxx, using our model to an error of xxx.
 This error was estimated over the complete training and testing datasets.
 
 We compare the models by the log-likelihood on the training and testing set.
