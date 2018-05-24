@@ -75,51 +75,66 @@
 
 \begin{abstract}
 \noindent
-The goal of the project is to compare different data-driven models for the behavior of zebrafish.
+The goal of the project is comparing different data-driven models for the behavior of juvenile zebrafish.
 The models should be able to predict and simulate the individual motion of an animal reacting to its environment.
 The environment in our case is another fish and the walls surrounding the arena.
-The models can be used to steer a fish in a virtual reality environment, for example.
 
 We approximate the movement by a piece-wise linear model.
-The wall forces are fit using a force-based model.
+The wall forces are fit using a force-based approach.
 
-We present multiple models for the social behaviour, starting with a linear receptive field model.
+We present multiple models for the social behavior, starting with a linear receptive field model.
 This model is then enhanced by considering temporal dependencies and non-linear effects.
 The final model is able to capture the entire trajectory distribution conditioned on the surroundings of the fish for each linear segment.
 We achieve that using a mixture density recurrent neural network model.
 \end{abstract}
 
 \section{Introduction}
-The goal of the project is to compare different strategies for modelling the behaviour of juvenile zebrafish.
+This paper is concerned with the development of a model of the behavior of juvenile zebrafish.
 These models should be able to predict and simulate the individual motion of one animal reacting to its environment (i.e.\ another fish and a wall).
 
 A use-case for this project is steering a virtual fish in a virtual reality environment for animals.
-It can be used to perform experiments that investigate causal relationships in animal behaviour.
+It can be used to perform experiments that investigate causal relationships in animal behavior.
 
+\begin{marginfigure}
+    \centering
+\begin{tikzpicture}[scale=0.5]
+\draw[] (3, 3)--(5,5); % our fish at t
+\node[rotate=45] at (4.5,4.5) {\textcolor{red}\PHtunny}; % head
+
+\draw[gray] (3.0, 0)--(3.0, 3.0); % fish at t - 1
+\node[rotate=90] at (3.0,2.5) {\textcolor{gray}\PHtunny}; % fish at t -1
+
+\draw [red,very thick] (3.0, 1.0) arc (-90:45:2);
+\node[rotate=45] at (3.8, 2.5) {\large$\delta\phi$};
+\end{tikzpicture} 
+\caption{Heading change from gray heading to red heading.}
+\label{fig:goal}
+\end{marginfigure}
 The movement of zebrafish can be described by discrete models that assume that the fish moves in a piece-wise linear fashion.
 After choosing a heading direction, the fish kicks off and moves in an approximately straight line.
-We model the heading change and distance for each kick.
+We model the heading change (figure~\ref{fig:goal}) and distance for each kick.
 
-We start with an simple model and refine it twice.
-Each modification drops assumptions about the behaviour and thus creates a more flexible, data-driven model.
+We start with a simple model and refine it twice.
+Each modification drops assumptions about the behavior and thus creates a more flexible, data-driven model.
 The models developed in the earlier steps serve as baselines for the more complicated ones.
 We can thus see whether the assumptions are correct and how important each component of the model is.
 
 We make the following contributions:
 \begin{itemize}
 \item We discuss a force-based model for the wall--fish interaction.
-\item We develop an data-driven receptive field approach for efficient spatial binning.
-\item We evaluate whether including past receptive field improves the performance of the model.
+\item We develop an data-driven receptive field approach for efficient spatial discretization.
+\item We evaluate whether including past trajectories improves the performance of the model.
   In other words, we evaluate whether the fish considers only its surroundings at kick-off time, or whether it posses a memory.
 \item We present a recurrent neural network that can handle multi-modal predictions and captures non-linear effects.
   This model describes the trajectory distribution directly instead of performing only a point estimate.
 \end{itemize}
 
 \section{Pre-Processing}
-Before we can dive into the modelling, we need to massage the data into an appropiate format.
-This pre-processing stage is described in this chapter.
-We first extract motion features from positions and orientations extracted by a video tracking software.
-Then we segment the continous motion into discrete kicks.
+Before we can dive into the modeling, we need to massage the data into an appropriate format.
+This pre-processing stage is described in this section.
+
+We first extract motion features from positions and orientations obtained by a video tracking software.
+Then we segment the continuous motion into discrete kicks.
 All steps mentioned thus far follow the protocol of \citeauthor{calovi}\autocite{calovi} with slight modifications.
 We then describe a simple wall model.
 This model is considered a part of the pre-processing stage because we use it to filter the data to areas with weak wall influence.
@@ -135,19 +150,21 @@ We close this section with a description of our receptive field features that ar
 \end{marginfigure}
 
 We use data obtained from ten experiments.
-In each experiment two fish swam for one hour in a \(\SI{30}{\m} \times \SI{30}{\m}\) tank, enclosed by a four straight walls.
+In each experiment two fish swam for one hour in a \(\SI{30}{\cm} \times \SI{30}{\cm}\) tank, enclosed by a four straight walls.
 The motion was captured by a camera and was tagged by a video tracking software.
 An example for the experimental situation can be seen in figure~\ref{fig:arena}.
 The raw data consists of the positions of both fish, their orientation relative to the x-axis, and time.
+This coordinate system is used throughout the following sections.
 
 We mark frames that caused problems for the tracking system, for example when the identity of both fish was confused, as invalid.
 The video data has roughly 100 frames per second, the time between frames is slightly irregular.
-We convert the video to a constant framerate by iterating over the frames and insert frames between them if the time between frames differs by more than \SI{0.005}{\s} from a constant framerate.
+We convert the video to a constant framerate by iterating over the frames and inserting frames between them if the time between frames differs by more than \SI{0.005}{\s} from a constant framerate.
 These inserted frames are marked invalid as well.
 
-The velocity is computed by finite differences between timepoints.
-We then smooth the velocity by a Savgol filter with window length of 15 frames and a polynomial order of three.
-This filter uses a local polynomial approximation, it is also used to compute the derivative of the velocity.
+The velocity is computed by finite differences between time-points.
+We then smooth the velocity by a Savgol filter with a window size of 15 frames and a polynomial order of three.
+This filter uses a local polynomial approximation.
+We use it also to compute the derivative of the velocity.
 If fish move slower than \SI{0.5}{\cm/\s} for \SI{4}{\s}, they are marked as stopped.
 Frames in that area are marked as invalid.
 We do this because we are only interested in swimming behavior.
@@ -155,9 +172,8 @@ We do this because we are only interested in swimming behavior.
 \subsection{Discrete Motion}
 The movement of zebrafish can be described by discrete models that assume that the fish moves in a piece-wise linear fashion.
 After choosing a heading direction, the fish kicks off and moves in an approximately straight line.
-We need to segment the fish motion into kicks first.
-Without loss of generality, we only consider how to segment the motion of one fish.
-The segmentation for each fish is computed seperately, the resulting kicks are concatenated.
+We need to segment the fish motion into kicks.
+The segmentation for each fish is computed separately, the resulting kicks are concatenated.
 
 \begin{marginfigure}
 \includegraphics[scale=1]{smoothing}
@@ -167,14 +183,15 @@ The segmentation for each fish is computed seperately, the resulting kicks are c
 \label{fig:smoothing}}
 \end{marginfigure}
 
-We then use the zero crossing of this smoothed acceleration to mark instances, where the fish moves from accelerating to gliding.
-An example result for this method can be seen in figure~\ref{fig:smoothing}.
+We use the zero crossing of the smoothed acceleration to mark instances, where the fish changes from accelerating to gliding phase or vice versa (figure~\ref{fig:smoothing}).
 One acceleration and gliding phase is then combined to form a kick.
-If an acceleration or gliding phase is shorter than a treshold \SI{0.08}{\s} the phase is merged with the previous one.
+If an acceleration or gliding phase is shorter than a threshold of \SI{0.08}{\s} the phase is merged with the previous one.
 This segmentation procedure results in c.a.\ 148000 kicks.
+We use the first 20\% of the first 5 and the last 20\% of the other 5 experiments as testing set.
 
-We then extract the heading change, length, maximum velocity for each kick.
-Additionally, we extract the positions and angles of both fish and the distance and angles towards the wall for both fish for the kick and timesteps before it.
+We then extract the heading change, length and duration for each kick.
+Additionally, we extract the positions and angles of both fish and their distance and angles towards the wall.
+We extract this data for the kick and timesteps before it.
 For our experiments we use time steps of \SI{0}{\s}, \SI{0.05}{s}, \ldots, \SI{0.35}{\s}, which goes back roughly one mean kick duration (figure~\ref{fig:kick-duration}).
 \begin{marginfigure}
 \includegraphics{kick_duration}
@@ -183,34 +200,17 @@ Dotted line is the mean duration at \SI{0.37}{\s}.}
 \label{fig:kick-duration}
 \end{marginfigure}
 
-
-\begin{marginfigure}
-    \centering
-\begin{tikzpicture}[scale=0.5]
-\draw[] (3, 3)--(5,5); % our fish at t
-\node[rotate=45] at (4.5,4.5) {\textcolor{red}\PHtunny}; % head
-
-\draw[gray] (3.0, 0)--(3.0, 3.0); % fish at t - 1
-\node[rotate=90] at (3.0,2.5) {\textcolor{gray}\PHtunny}; % fish at t -1
-
-\draw [red,very thick] (3.0, 1.0) arc (-90:45:2);
-\node[rotate=45] at (3.8, 2.5) {\large$\delta\phi$};
-\end{tikzpicture} 
-\caption{Heading change from grey heading to red heading.}
-\label{fig:goal}
-\end{marginfigure}
-
 This paper is concerned with the prediction of the relative change in orientation between the start and end of each kick (figure~\ref{fig:goal}).
 The social models also predict the length of each kick.
 We do not model the duration of the kicks, we rather draw them from a Gaussian mixture kernel density estimate fit to the experimental data.
 
 \subsection{Wall Force}
-We begin with the modeling of wall-forces.
-We follow a force-based modeling approach and describe the influence of a wall on the heading change \(\delta \phi_w\) as
+We are now ready to discuss the modeling of the wall influence.
+We follow the force-based modeling approach of \citeauthor{calovi} and describe the influence of a wall on the heading change \(\delta \phi_w\) as
 \begin{equation*}
   \delta \phi_w (r_w, \theta_w) = f(r_w)O_w(\theta_w),
 \end{equation*}
-where $r_w$ corresponds to the distance to the wall and $\theta_w$ is the relative angle of the fish towars the wall~\autocite{calovi}.
+where $r_w$ corresponds to the fish and $\theta_w$ is its relative angle towards the wall~\autocite{calovi}.
 The relative angle is computed by subtracting the orientation of the fish from the orientation of the wall.
 We split the wall influence into an exponentially decaying force term \(f_w\) and an odd angular-response function \(O_w\)
 \begin{align*}
@@ -219,7 +219,7 @@ We split the wall influence into an exponentially decaying force term \(f_w\) an
 \end{align*}
 where $l_w, a_1, a_2, b_1, b_2 \text{ and } c$ are parameters.
 Note that we use a different series expansion for the odd angular function \(O_w\).%
-\footnote{Their proposed form does not work in our case.
+\footnote{The functional form of \citeauthor{calovi} does not work in our case.
   The reason for this could be that they consider both a different species and a round wall.}
 Finally, we consider the closest two walls and sum over their influences
 \begin{equation*}
@@ -241,19 +241,21 @@ Our proposed functional forms result in a rapidly decaying wall influence (figur
 
 \subsection{Receptive Fields}
 We now explain the input features of our social models.
-From here on, we restrict our dataset to kicks where the wall influence is neglible.
+From here on, we restrict our dataset to kicks where the wall influence is negligible.
 Practically, we drop all kicks where the value of \(f_w(r_w)\) is larger than $0.1$.
 This reduced the number of kicks in the training set to c.a.\ 19000.
-Our social model use a receptive field as their input~\autocite{discreteModes}.
-We construct this by rotating the coordinate system such that the fish we are considering is parallel to the x-axis and looking to the right.
-This corresponds to a heading of \ang{0}.
+
+Our social models use a receptive field (\textsc{rf}) as their input~\autocite{discreteModes}.
+We construct this \textsc{rf} by rotating the coordinate system such that the fish we are considering is parallel to the x-axis and looking to the right.
+This corresponds to a heading of \ang{0} in our coordinate system.
 We then shift the coordinate system such that our fish is at the center (figure~\ref{fig:rf}).
+This is done for all timesteps.
 
 \begin{marginfigure}
  \includegraphics{receptive_field_before} 
  \includegraphics[scale=1]{receptive_field_after} 
- \caption{The receptive field transforms the situation depicted in the top figure to the one in the bottom figure.
- Note that the focal fish (red line) looks to the right which considered to be an orientation of zero in our coordinate system.}
+ \caption{The receptive field transforms the situation depicted in the top image to the one in the bottom image.
+ Note that the focal fish (red line) looks to the right and is at the origin.}
 \label{fig:rf}
 \end{marginfigure}
 
@@ -263,16 +265,20 @@ This correspond to the kick trajectory in our new coordinate system.
 We now shift our focus to the spatial discretization.
 The standard approach is to divide the space into a regular grid of bins with equal size.
 This approach has the disadvantage that some bins contain most of the kicks while others are nearly empty.
-One solution to lessen the impact of this problem is to introduce a cut-off range, after which the social forces are assumed to be neglible.
+One solution to lessen the impact of this problem is to introduce a cut-off range, after which the social forces are assumed to be negligible.
+
 We do not follow this approach but rather use a data-driven binning approach where we try to create bins that have a more balanced occupancy.
 This is not the only criterion for choosing a discretization approach.
 For interpratibility it is useful to be able to clearly distinguish situations where the other fish is behind or in front of the focal fish and whether it is on its left or right side.
 The algorithm to compute the bin edges is shown in algorithm~\ref{alg:binning}.
 We only show how to compute the bins for the training set, the bins for the testing set can be computed in the same manner but without recomputing the edges.
 
-Using a regular grid with 64 bins covering all seen positions (i.e.\ the minimum and maximum $x$ and $y$ coordinates are included in the grid) results in a mean number of fish per bin of roughly \(2077\pm 7255\) (mean $\pm$ std.) for the training set and \(474 \pm 1645\) for the testing set.
+A regular grid with 64 bins covering all seen positions (i.e.\ the minimum and maximum $x$ and $y$ coordinates are included in the grid) as a baseline.
+This grid was created by binning the space symmetrically (around 0) for $x$ and $y$ direction separately,
+e.g.\ the grid spans the range $\left(  -\max(  \operatorname{abs}( x)) \ldots \max ( \operatorname{abs}( x)) \right)$ for the x-axis.
+Using this technique on our dataset results in a mean number of fish per bin of roughly \(2077\pm 7255\) (mean $\pm$ std.) for the training set and \(474 \pm 1645\) for the testing set.
 In fact, 12 and 13 of the bins actually do not contain any fish at all for the training and testing set respectively!
-In contrast to that the bins of our proposed data-driven binning scheme contain $2077 \pm 179$ fish with zero empty bins for the testing scheme.
+In contrast to that the bins of our proposed data-driven binning scheme contain $2077 \pm 179$ fish with zero empty bins for the training set.
 For the testing dataset the bins contain $474 \pm 139$ fish, again with zero empty bins (figure~\ref{fig:occupancy}).
 
 \begin{figure}[htb]
@@ -280,7 +286,8 @@ For the testing dataset the bins contain $474 \pm 139$ fish, again with zero emp
    \centering
    \caption{Number of fish in each bin obtained from data-driven binning scheme, evaluated on testing set.
      The color corresponds to the number of fish in per bin.
-   The red cross marks the origin and thus the position of our focal fish.}
+     The red cross marks the origin and thus the position of our focal fish.
+   This plot is set in the local \textsc{rf} coordinate system, the focal fish thus looks to the right.}
    \label{fig:occupancy}
 \end{figure}
 
@@ -294,19 +301,19 @@ For the testing dataset the bins contain $474 \pm 139$ fish, again with zero emp
     \Ensure{\\$\textsc{Edges} (\bm{x}, N)$ computes the edges of a histogram s.t.\ all $N$ bins have the same number of elements.
       If this is not possible, the first few bins have a size that is 1 larger.\\
     $\textsc{Bin} (\text{edges}, \bm{x})$ computes the histogram bin from the bin edges with open boundaries on both sides.}
-   \Function{Edges-1d}{$\bm{x}$}
-    \Let{$\text{edges}^-$}{\Call{Edges}{$\bm{x} [\bm{x} \leq 0]$}}
-    \Let{$\text{edges}^+$}{\Call{Edges}{$\bm{x} [\bm{x} > 0]$}}
+   \Function{Edges-1d}{$\bm{x}, N$}
+    \Let{$\text{edges}^-$}{\Call{Edges}{$\bm{x} [\bm{x} \leq 0], N$}}
+    \Let{$\text{edges}^+$}{\Call{Edges}{$\bm{x} [\bm{x} > 0], N$}}
     \State \Return \Call{Concatenate}{$\text{edges}^-, 0, \text{edges}^+$}
 \EndFunction 
 \Require{Positions of focal fish $(\bm{x}, \bm{y})$ an number of bins per axis $N$}
 \Let{bins}{\Call{Array}{size = \Call{Len}{$\bm{x}$}}}
-\Let{edges-x}{\Call{Edges-1d}{$\bm{x}$}}
+\Let{edges-x}{\Call{Edges-1d}{$\bm{x}, N$}}
   \Comment{First bin x-axis}
-  \Let{bins-x}{\Call{Bin}{edges-x, $\bm{x}$}}
+  \Let{bins-x}{\Call{Bin}{edges-x, $\bm{x}, N$}}
   \Let{edges-y}{\Call{Array}{$\text{size} = N$}}
   \For{$\text{bin-x} \in \text{bins-x}$}
-  \Comment{Bin y-axis for each x-bin seperately}
+  \Comment{Bin y-axis for each x-bin separately}
   \Let{idx}{$(\text{bins-x} = \text{bin})$}
   \Let{$\bm{y}^{\text{cur}}$}{$\bm{y} [\text{idx}]$}
   \Let{$\text{edges-y}[\text{bin-x}]$}{\Call{Edges-1D}{$\bm{y}^{\text{cur}}$}}
@@ -317,17 +324,17 @@ For the testing dataset the bins contain $474 \pm 139$ fish, again with zero emp
 \end{algorithm}
 
 This categorical feature is converted using one-hot-encoding to a feature vector.
-We additionally use the standarized relative trajectory of the other fish multiplied with the aforementioned spatial feature%
-\marginnote{This can be generalized to multiple fish by interpreting the features as number of fish per bin and mean relative trajectory per bin.}.
+We additionally use the standardized relative trajectory of the other fish multiplied with the aforementioned spatial feature%
+\sidenote[][-1cm]{This can be generalized to multiple fish by interpreting the features as number of fish per bin and mean relative trajectory per bin.}.
 
 \section{Social Models}\label{sec:social}
-We are now ready to model the social behaviour of zebrafish.
+We are now ready to model the social behavior of zebrafish.
 Note that the approaches developed here can all be easily extended to larger fish groups.
-Our target variable for all models is the relative kick trajectory in the local coordinate system described in the previous section.
+Our target variable for all models is the relative kick trajectory in the local \textsc{rf} coordinate system described in the previous section.
 We thus model heading change and distance jointly.%
-\footnote{This approach has two advantages.
+\sidenote[][-0.5cm]{This approach has two advantages.
   Firstly, we avoid dealing with cyclic data (as angles are).
-Secondly, all target variables (i.e.\ vector components) have the same phsyical dimension and unit which makes the loss functions easier to interpret.}
+Secondly, all target variables (i.e.\ vector components) have the same physical dimension and unit which makes the loss functions easier to interpret.}
 We start with a simple linear model.
 This model is then refined twice by adding memory and non-linear effects.
 
@@ -341,17 +348,21 @@ This model is then refined twice by adding memory and non-linear effects.
  \end{tikzpicture}
  \caption{Situation considered for the models without memory:
  We model the heading change of the red fish given the current position and angle of the other fish.}
+\label{fig:no-memory}
 \end{marginfigure}
 
-The linear model for a component \(i\) of our target vector \(\hat{\bm{y}}\) can be written as
+The linear model without memory for a component \(i\) of our target vector \(\bm{y}\) can be written as a normal distribution \(\mathcal{N}\)
 \begin{equation*}
- \left( Y^i | \bm{\beta}^{i} \right)  \sim \mathcal{N} \left( \bm{X^i} \bm{\beta^i} + \text{ bias}, \sigma^2 \bm{I_{n \times p}}  \right),
+ \left( y^i | \bm{\beta}^{i} \right)  \sim \mathcal{N} \left( \bm{X^i_0} \bm{\beta^i_0} + \text{intercept}, \sigma^2 \bm{I}  \right),
 \end{equation*}
-where \(\bm{X^i}\) is the design matrix. \todo{mention weights, bias, identity matrix.}
+where \(\bm{X^i_0}\) is the design matrix at kick-off time, \(\bm{\beta^i}\) is a vector of learned weights, \(\sigma^2\) is the residual variance and \(\bm{I}\) is an identity matrix of appropriate size.
+This modeling situation is depicted in figure~\ref{fig:no-memory}.
 In the following discussion of the linear models we will drop the superscript for the component and describe the computation for one vector component without loss of generality.
+Furthermore all linear models discussed here are trained using a $L_2$ regularized mean squared error (\textsc{mse}) loss.
+This model is known in the statistical literature as ridge regression.
 
 \subsection{Time dependence}
-\begin{marginfigure}
+\begin{marginfigure}[2cm]
   \begin{tikzpicture}[scale=0.5]
    \draw[red] (3, 3)--(5,5); % our fish
    \draw[ultra thick] (0,0)--(0,5); % wall
@@ -362,12 +373,13 @@ In the following discussion of the linear models we will drop the superscript fo
  \end{tikzpicture}
  \caption{Situation considered for the models with memory:
    We model the heading change of the red fish given the trajectory of the other fish.
- The trajectory of the red fish is implicitely encoded in the receptive field as we consider the position of the other fish in the local coordinate system at each point of red's trajectory.}
+ The trajectory of the red fish is implicitly encoded in the receptive field as we consider the position of the other fish in the local coordinate system at each point of red's trajectory.}
+\label{fig:memory}
 \end{marginfigure}
 We now add a time-dependence to our model.
-To do this, we extract some time window before each kick.
+To do this, we use all extracted timesteps leading to a kick (figure~\ref{fig:memory}).
 
-We consider two more models here.
+We consider two models here.
 For the first one we simply concatenate all features of the design matrix \(\bm{X_t}\) for all timesteps \(t\).
 This results in a very large number of parameters, consisting of one set of weights \(\bm{\beta_t}\) per timestep.
 
@@ -385,52 +397,57 @@ The prediction is then given by
 \end{equation*}
 
 \subsection{Mixture Density Networks: Bi-modal distributions \textit{\&} non-linearity}
-As a final model we present a recurrent-neural network that predicts a full distribution for \(\left( \bm{y} | \bm{\beta} \right)\).
-We start by describing an encoder, which transforms the input features to a hidden state, and a decoder which then transforms the hidden state into the output values.
-The complete model is then an arbitrary combination of presented encoders and decoders.
+As a final model we present a neural network that predicts a full distribution for \(\left( \bm{y} | \bm{X}\right)\), which allows us to draw multiple samples and estimate the predictive uncertainty.
+We start by describing encoders, which transform the input features to a hidden state, and decoders which then transform the hidden state into output values.
+The complete model is then an arbitrary combination of the encoders and decoders.
 
 We describe two simple encoders:
 \begin{itemize}
 \item The simplest (non-linear) choice is a multilayer-perceptron (\textsc{mlp}).
-  In our case we use a two layers consisting of a linear transformation, followed by the \textit{tanh} non-linearity and a dropout probability of 50\%\autocite{dropout}.
-  The input features for this model is the receptive field for the kick-off time.
+  In our case we use a two layers, each consisting of a linear transformation, followed by the \textit{tanh} non-linearity and a dropout probability of 50\%\autocite{dropout}.
+  The input feature for this encoder is the receptive field at kick-off time.
 \item
   As a temporal model we consider a standard recurrent neural network (\textsc{rnn}) which has an input linear transformation, and a recurrent hidden-to-hidden connection.
   For the hidden-to-hidden connection we apply recurrent dropout\autocite{recurrentDropout}.
-  This means that we sample a dropout mask per example and apply this to the hidden-to-hidden connections for all sequence steps instead of sampling a seperate mask for each sequence step.
+  This means that we sample a dropout mask per example and apply this to the hidden-to-hidden connections for all sequence steps instead of sampling a separate mask for each sequence step.
   We denote this dropout operator as \(d(\bm{x})\).
+  During evaluation this operator scales the weights by a factor of 0.5.
   These two layers are added and transformed with a \textit{tanh} non-linearity
   \begin{equation*}
-    \bm{h^i} (\bm{x}) = \operatorname{tanh} \left( \bm{b} + \bm{w_{ih}} \bm{x^i} + \bm{w_{hh}} d (\bm{h^{i-1}}) \right),
+    \bm{h_t} (\bm{x}) = \operatorname{tanh} \left( \bm{b} + \bm{w_{ih}} \bm{X_t} + \bm{w_{hh}} d (\bm{h^{i-1}}) \right),
   \end{equation*}
   where \(\bm{w_{ih}}\) and \(\bm{w_hh}\) are the weights for the input-to-hidden and hidden-to-hidden layers respectively.
+  In this equation $\bm{X^t}$ is a tensor containing the input features for the entire batch at timestep \(t\).
+  The timestep that is the furthest away from kick-off time is denoted by $t = 1$.
   The parameter \(\bm{b}\) corresponds to a vector of learned biases.
-  We learn the initial hidden state \(h^0\) instead of using a zero-initialised state as it improved the speed of convergence.
+  We learn the initial hidden state \(h^0\) instead of using a zero-initialized state as it improved the speed of convergence.
+  The last hidden state is used as an encoded representation of the data.
 
-  The input features for this models is the complete sequence of receptive fields leading to a kick.
+  The input features for this models is the complete sequence of receptive fields leading to a kick%
+  \sidenote{
   We use a fixed input sequence length for two reasons:
   Firstly, this allows us to compare the time-dependent linear models and \textsc{rnn}-models directly.
-  Secondly, we avoid the assumption that a fish only considers its surroundings in the timespan between two kicks.
-  Note that we have assume that a kick is independent of the other kicks.
+  Secondly, we avoid the assumption that a fish only considers its surroundings in the time span between two kicks.
+  Note that we assume that a kick is independent of the other kicks.}.
 \end{itemize}
 We did not observe significant better results using the rectifier linear unit activation function, in fact, it lead to divergence for the \textsc{rnn} model.
-Using more neurons in the hidden layer does not achieve better results here.
-For scenarios with less sparse feature vectors such as with larger fish groups, a more complex representation might be beneficial.
+Using more neurons in the hidden layer also did not achieve better results.
+For scenarios with less sparse feature vectors such as obtained with larger fish groups, a more complex representation might be beneficial.
 We hope that the combination of the simplicity of the models coupled with the dropout regularization leads to a highly representative compressed representations in the encoded vector.
 Note that both models (disregarding the learning initial \textsc{rnn}-state) have the same number of parameters.
 
-For the encoder we follow the ideas of \textit{mixture density networks} but use multivariate Gaussians with non-diagonal covariance as mixture components\autocite{mdn}.
+For the encoder we follow the ideas of \textit{mixture density networks} (\textsc{mdn}) but use multivariate Gaussians with non-diagonal covariance as mixture components\autocite{mdn}.
 To do this, we write our prediction as
 \begin{equation*}
-p \left( \bm{y} | \bm{\beta} \right) = \sum_{i}^n \pi_i \mathcal{N} \left( \bm{\mu_i}, \bm{\Sigma_i} \right),
+p \left( \bm{y} | \bm{\beta} \right) = \sum_{i}^n \kappa_i \mathcal{N} \left( \bm{\mu_i}, \bm{\Sigma_i} \right),
 \end{equation*}
-where \(\pi_i, \bm{\mu_i}, \bm{\Sigma_i}\) are the parameters (mixing coefficients, mean and covariance) for a mixture of Gaussians with \(k\) components.
+where \(\kappa_i, \bm{\mu_i}, \bm{\Sigma_i}\) are the parameters (mixing coefficients, mean and covariance) for a mixture of Gaussians with \(k\) components.
 The function \(\mathcal{N}(\bm{\mu}, \bm{\Sigma_i})\) is the probability density of a multivariate normal distribution 
 
-These parameters are predicted for each target seperately by our neural network.
-We will now derive necessary conditions that have to hold for the parameters and describe how our network output satisfies them.
+These parameters are predicted for each target separately by our neural network.
+We now derive necessary conditions that have to hold for the parameters and describe how our network output satisfies them.
 Note that we can write the Cholesky decomposition%
-\footnote{This decomposition always exists for invertible covariance matrices as they are by definition positive-semidefinite and symmetric.}
+\footnote{This decomposition always exists for invertible covariance matrices as they are by definition positive-semi-definite and symmetric.}
 of the covariance matrix \(\bm{\Sigma_i}\) as
 \begin{equation*}
   \bm{\Sigma_i} = \bm{L_i} \bm{L_i^T} =
@@ -444,7 +461,7 @@ of the covariance matrix \(\bm{\Sigma_i}\) as
      b_i & c_i
    \end{bmatrix}.
 \end{equation*}
-We then have to fulfil the following constraints:
+We then have to fulfill the following constraints:
 \begin{itemize}
 \item The diagonals of all \(\bm{L}_i\) need to be larger than zero.
   To do this we use the \textit{exponential function} as our non-linearity
@@ -453,21 +470,21 @@ We then have to fulfil the following constraints:
   Additionally it ensures that the variance has a minimal value and thus avoids degenerate distributions.}. % maybe cite this master's thesis?
   Using the fact that a matrix has an invertible Cholesky decomposition with positive diagonal elements iff.\ it is positive definite and Hermetian,
   the resulting matrix \(\bm{\Sigma_i}\) is a valid non-singular covariance matrix.
-\item The mixing coefficients need to be positive and have to sum to one.
+\item The mixing coefficients \(\kappa_i\) need to be positive and have to sum to one.
   This is achieved by using the \textit{softmax} (equation~\ref{eq:softmax}) non-linearity.
 
 \end{itemize}
 All other parameters can have arbitrary values.
-We predict the Gaussian mixture parameters each by computing a linear transformation of the hidden state of the encoder followed by the appropiate non-linearity.
+We predict the Gaussian mixture parameters each by computing a linear transformation of the hidden state of the encoder followed by the appropriate non-linearity.
 Using a full covariance matrix instead of a diagonal lead to no improvement for our data.
 Because a diagonal covariance matrix is conceptually simpler, we set \(b_i\) to zero for all outputs.%
 \sidenote{This does not limit the capabilities of our network because a mixture of Gaussians with diagonal covariance matrices is able to approximate all non-degenerate distributions,
   given a sufficient number of components.}
 
-We minimize the negative-log-likelihood, which is given for a vector of examples \(\bm{y}\) by
+We minimize the negative-log-likelihood (\textsc{nll}), which is given for a vector of examples \(\bm{y}\) by
 \begin{align}
   \label{eq:nll}
- \mathcal{L} (\bm{y}; \bm{\pi}, \bm{\Sigma}, \bm{\mu}) &= - \log \left(  \sum_i \exp \left(  \log \left( \bm{\pi_i} \mathcal{N} (\bm{y}; \bm{\mu_i}, \bm{\Sigma_i} \right) \right) \right) \\ 
+ \mathcal{L} (\bm{y}; \bm{\kappa}, \bm{\Sigma}, \bm{\mu}) &= - \log \left(  \sum_i \exp \left(  \log \left( \bm{\kappa_i} \mathcal{N} (\bm{y}; \bm{\mu_i}, \bm{\Sigma_i} \right) \right) \right) \\ 
   \intertext{with}
   \log \left( \mathcal{N} (\bm{y}; \bm{\mu_i}, \bm{\Sigma_i}) \right) &= 
  -\log \left( \sqrt{\pi_i^2 \vert \bm{\Sigma_i}} \vert)  \right) - 0.5 \left( (\bm{y} - \bm{\mu_i})^T \bm{\Sigma_i}^{-1} (\bm{y} - \bm{\mu_i}) \right),\nonumber
@@ -477,7 +494,7 @@ In this equation, \(\vert \bm{\Sigma_i} \vert\) denotes the determinant of \(\bm
 \sidenote[][-1cm]{We compute the determinant directly from the Cholesky matrix \(\bm{L_i}\).
   Furthermore we do not invert the covariance matrix but rather solve the equivalent linear system with forward-backward substitution using \(\bm{L_i}\) again.
 For the diagonal case, both determinant and inverse are trivial to compute and numerically stable.}.
-While this optimization problem is mathematically correct, it is suspectible to underflow.
+While this optimization problem is mathematically correct, it is susceptible to underflow.
 To rectify this we follow common advice and apply the \textit{log-sum-exp-trick} which is given by the identity
 \begin{equation*}
   \log \left( \sum_i \exp (x_i) \right) = \max_i (x_i) + \log \left( \sum_i \exp (x_i - \max_i (x_i)) \right)
@@ -485,30 +502,48 @@ To rectify this we follow common advice and apply the \textit{log-sum-exp-trick}
 to compute the sum in equation~\ref{eq:nll}\autocite{mdnMaster}.
 
 \section{Implementation \textit{\&} Training Details}
+We used the data-driven discretization with 64 bins for all experiments.
+
 The linear model without memory and the one with concatenated features were trained with the \textit{RidgeCV} estimator from \textbf{scikit-learn}\autocite{scikitLearn}.
 This implementation uses generalized-cross-validation over the training set to determine the best parameter for the regularization strength.
 
-%The linear model with identical spatial weights was implemented in \textbf{PyTorch} and optimized with the \textsc{L-BGFS} optimizer until convergence~\autocite{pytorch}.
 The linear model with static spatial weights and all neural network models were implemented in \textbf{PyTorch}.
-The number of components for the \textsc{mdn}-networks was is set to 5.
+The number of components for the \textsc{mdn}-networks was set to 5.
 We use stochastic gradient descent with an initial learning rate of 0.1 and a weight decay of 0.0001 to optimize our networks.
 We apply a Nesterov momentum of 0.9.
 Encoders and decoders are jointly trained.
 We clip gradients such that they have a maximum absolute value of 100 for stability of training.
 For initialization, weights are drawn from a normal distribution with mean 0 and standard deviation of 0.002 and all biases are set to zero.
 We train all models for 1000 epochs with a batch size of 128.
+The learning rate is multiplied by 0.99 after each epoch.
 
 We implemented a program to output an animation that shows two fish swimming, each controlled by one of our implemented algorithm.
 The simulation uses periodic boundary condition to show the effect of the social models without the influence of walls.
 
-A possible use case for these models is steering a virtual fish in a virtual reality environment.\todo{cite fish vr, does it belong here?}
-In this case periodic boundary conditions are possible but are not meaningful.
+A possible use case for these models is steering a virtual fish in a virtual reality environment\autocite{animalVr}.
+In this case periodic boundary conditions are possible but not meaningful.
 To rectify this, one can predict the heading change with our social models and then rotate the resulting trajectory by the prediction of the wall model.
-Alternatively it would be possible to implement a virtual force that pushes our fish away from the wall.
-This is of course not physical but would allow us to observe the social behaviour.
+Alternatively it is possible to implement a virtual force that pushes our fish away from the wall.
+This is of course not physical but would allow us to observe the social behavior.
 
 \section{Evaluation}
-\begin{margintable}[5cm]
+We start by comparing the angle prediction from the wall model against the baseline of always predicting the mean angle.
+Evaluating these predictions with the \textsc{mse}-loss or similar metrics is not meaningful because they do not take the cyclical nature of angles into account.
+For example, a prediction of \ang{360} for an angle of \ang{0} is be perfect but incurs a large \textsc{mse}-loss.
+We rectify this by using definitions from directional statistics\autocite{circularStatistics}.
+% Angle error, https://stats.stackexchange.com/questions/197639/calculating-goodness-of-fit-for-circular-data
+Following \citeauthor{circularStatistics}, we can compute the mean of a vector of angles \(\bm{\alpha}\) with
+\begin{equation*}
+ \operatorname{Mean-Angle}(\bm{\alpha}) = \operatorname{arctan2} \left( \sum_i \sin \left( \alpha_i \right),  \sum_i \cos \left( \alpha_i \right)  \right).
+\end{equation*}
+One possible way of defining an error over angles is
+\begin{equation}\label{eq:angle-error}
+ \operatorname{Angle-Error}(\bm{\alpha}, \bm{\beta}) = \operatorname{Mean} \left( \operatorname{arccos} \left(  \cos  (\bm{\alpha} - \bm{\beta})  \right) \right).
+\end{equation}
+This error is zero if both angles are identical.
+Our wall model achieves a lower error than predicting the mean for all examples on both training and testing data (table~\ref{tab:results-wall}).
+
+\begin{margintable}
 \centering
 \begin{tabular}{@{}lS[table-format=1.3]S[table-format=1.3]@{}}
 \toprule
@@ -524,38 +559,25 @@ Mean & 0.398 & 0.375 \\
 \label{tab:results-wall}
 \end{margintable}
 
-We start by comparing the angle prediction from the wall model against the baseline of always predicting the mean angle.
-Evaluating these predictions with the mean-squared-error (\textsc{mse}) or similar metrics is not meaningful because they do not take the cyclical nature of angles into account.
-For example, a prediction of \ang{360} for an angle of \ang{0} would be perfect but would incur a large \textsc{mse}-loss.
-We rectify this by using definitions from directional statistics\autocite{circularStatistics}.
-% Angle error, https://stats.stackexchange.com/questions/197639/calculating-goodness-of-fit-for-circular-data
-We can compute the mean of a vector of angles \(\bm{\alpha}\) with
-\begin{equation*}
- \operatorname{Mean-Angle}(\bm{\alpha}) = \operatorname{arctan2} \left( \sum_i \sin \left( \alpha_i \right),  \sum_i \cos \left( \alpha_i \right)  \right).
-\end{equation*}
-One possible way of defining an error over angles is
-\begin{equation}\label{eq:angle-error}
- \operatorname{Angle-Error}(\bm{\alpha}, \bm{\beta}) = \operatorname{Mean} \left( \operatorname{arccos} \left(  \cos  (\bm{\alpha} - \bm{\beta})  \right) \right).
-\end{equation}
-This error is zero if both angles are identical.
-Our wall model achieves a lower error than predicting the mean for all examples on both training and testing data (table~\ref{tab:results-wall}).
-
-We compare the models by the log-likelihood on the training and testing set.
-Even though the linear models are not trained by optimizing the \textsc{nll}, it is appropiate to use this metric for evaluation.
-The reason for this is that the regularized \textsc{mse} loss function used for ridge regression can be derived by computing the \textsc{nll} under the assumption that the likelihood is Gaussian plus a Gaussian prior on the weights.
-As mentioned in section~\ref{sec:social}, both datasets are restricted to situations with neglible wall-force.
+We compare the models the \textsc{mse} and \textsc{nll} on the training and testing set.
+As mentioned earlier, both datasets are now restricted to situations with negligible wall-force.
+Even though the linear models are not trained by optimizing the \textsc{nll}, it is appropriate to use this metric for evaluation.
+The reason for this is that the regularized \textsc{mse} loss function used for ridge regression can be derived by computing the \textsc{nll} under the assumption that the likelihood is Gaussian and a Gaussian prior on the weights.
 This comparison captures the whole predictive distribution and not only the mean prediction.
 In this way we take the uncertainty of the predictions into account.
 Note that it is not straight-forward to use more complicated methods such as log-likelihood ratios or the Akaike information criterion because we cannot estimate the number of degrees of freedoms for penalized recurrent neural network models.
 
-The best \textsc{nll}-error was achieved by the \textsc{mlp-mdn} and \textsc{rnn-mlp} on the training and testing set respectively (table~\ref{tab:results-social}).
-Interestingly, both methods have the best \textsc{mse}, even though we include models that were explicitely trained on the \textsc{mse}.
-The linear models all had larger errors for all considered metrics but did not perform significantly worse.
+The best \textsc{nll}-error was achieved by the \textsc{mlp-mdn} and \textsc{rnn-mlp} models on the training and testing set respectively (table~\ref{tab:results-social}).
+Interestingly, both methods had the best \textsc{mse}, even though we include models that were explicitly trained with the \textsc{mse}-loss.
+The linear models all had larger errors for all considered metrics but did not achieve a significantly worse \textsc{mse}.
 
 \begin{table}[htb]
 \centering
 \caption{Results for all social models on training and testing datasets.
-  Linear models are linear without time, linear with entire sequence concatened as features, linear with static spatial weights.
+  Linear models are linear without time, linear with entire sequence concatenated as features and linear with static spatial weights.
+  Some models have a \textsc{nll} of \(\infty\).
+  This stems from numerical issues, the \textsc{nll} is not actually \(\infty\) but too large to be represented by floating point numbers.
+  The reason for this is predicting a wrong result with a very high certainty, i.e.\ a variance that is too small.
   Best results are bold.
 }
 
@@ -576,27 +598,29 @@ Linear (const.\ spatial) & 2.08 & 1.91 & 0.467 & 0.391 \\
 
 
 \section{Conclusion \textit{\&} Future Work}
-In this work we presented a full modelling pipeline for discrete social models with temporal and non-linear effects.
-This pipeline starts by massaging the data into an appropiate format, using a wall model to filter timesteps with a strong wall influence, setting up a data-driven spatially discrete receptive field and finished with complex models implemented with a state-of-the-art neural network framework. 
+In this work we presented a full modeling pipeline for discrete social models with temporal and non-linear effects.
+This pipeline starts by massaging the data into an appropriate format, using a wall model to filter timesteps with a strong wall influence, setting up a data-driven spatially discrete receptive field and finished with complex models implemented in a state-of-the-art neural network framework. 
 
-Even though extending the models with a temporal and non-linear component did not show significant improvements for our dataset, we think that our proposed models are promising:
+Even though extending the models with a temporal and non-linear component did not show significant improvements for our dataset, we think that our proposed methods are promising:
 \begin{itemize}
 \item The data-driven spatial discretization results in a more equal distribution of fish than a standard regular grid.
 \item Because the social models do not use properties of other animals directly but rather model the mean features per bin they extend trivially to larger animal groups, without changing the statistical models or the spatial discretization.
-  This extension is harder for force-based models and usually require extensive modifications of the core model.
+  This extension is harder for force-based models and usually requires extensive modifications of the core model.
   We believe that our models perform better for larger animal groups as this would result in less sparse input vectors.
-\item The explicit modelling of probability distributions allows us to sample from the trajectory distribution conditioned on the social surroundings and is able to predict bimodal distributions.
+\item The explicit modeling of probability distributions allows us to sample from the trajectory distribution conditioned on the social surroundings and is able to predict bi-modal distributions.
+  Additionally it allows us to quantify the uncertainty.
+  This results in a smaller \textsc{nll}.
 \end{itemize}
-These results can be used directly for large-scale moddeling of fish-swarms.
+These results can be used directly for large-scale modeling of fish-swarms.
 We recommend the collection of more data or increasing the data-efficiency of the models.
-This could be achieved by
+This could be achieved by:
 \begin{itemize}
 \item Running more or longer experiments.
-\item Lessening the impact of the restriction to areas with neglible wall influnce.
+\item Lessening the impact of the restriction to areas with negligible wall influence.
   This could be accomplished by using fish that do not swim close to the wall at most times, using different arenas or by using a model that incorporates both wall and social influences directly.
   The latter approach could also consider non-linear interactions between both kind of environmental forces.
-\item Using a continous model instead of performing a segmentation into kicks.
-  This could be problematic for juvenile zebrafish as naive \textsc{rnn} models might not be suited for the moddeling of different states of motion.
+\item Using a continuous model instead of performing a segmentation into kicks.
+  This could be problematic for juvenile zebrafish as naive \textsc{rnn} models might not be suited for the modeling of different states of motion.
 \end{itemize}
 
 \printbibliography
