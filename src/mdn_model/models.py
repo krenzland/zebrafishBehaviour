@@ -50,6 +50,7 @@ class DropoutRNN(nn.Module):
         
         # Sample dropout mask for hidden-to-hidden connection.
         if self.training:
+            # todo: remove cuda, move to correct device.
             dropout = torch.bernoulli(torch.ones_like(hidden) * self.dropout_p).cuda()
         
         for i in range(seq_len):
