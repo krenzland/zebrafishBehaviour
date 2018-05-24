@@ -15,6 +15,8 @@
   url=true
 ]{biblatex}
 \addbibresource{../bibliography.bib}
+% disable osf, https://tex.stackexchange.com/questions/56371/change-the-old-style-numerals-of-mathpazo-via-tufte-latex-to-lining-numerals?rq=1
+\renewcommand{\rmdefault}{pplx} % todo remove later?
 
 \usepackage{caption}
 \usepackage{xpatch}
@@ -35,7 +37,6 @@
   \bfseries
   \sisetup{output-decimal-marker={\textmd{.}}}%
 }
-
 \usepackage{algorithm,algorithmicx}
 \usepackage[noend]{algpseudocode}
 \newcommand*\Let[2]{\State #1 \(\gets\) #2}
@@ -80,9 +81,9 @@ The environment in our case is another fish and the walls surrounding the arena.
 The models can be used to steer a fish in a virtual reality environment, for example.
 
 We approximate the movement by a piece-wise linear model.
-The wall forces are fit using a recent force-based model.
+The wall forces are fit using a force-based model.
 
-We present three models for the social behaviour, starting with a linear receptive field model.
+We present multiple models for the social behaviour, starting with a linear receptive field model.
 This model is then enhanced by considering temporal dependencies and non-linear effects.
 The final model is able to capture the entire trajectory distribution conditioned on the surroundings of the fish for each linear segment.
 We achieve that using a mixture density recurrent neural network model.
@@ -120,9 +121,9 @@ This pre-processing stage is described in this chapter.
 We first extract motion features from positions and orientations extracted by a video tracking software.
 Then we segment the continous motion into discrete kicks.
 All steps mentioned thus far follow the protocol of \citeauthor{calovi}\autocite{calovi} with slight modifications.
-We segue into a description of a simple wall model.
-We consider this to be a part of the pre-processing stage because we use it to filter the data to areas with weak wall influence.
-This chapter closes with a description of our receptive field features that are a flexible representation of the surroundings of the animals.
+We then describe a simple wall model.
+This model is considered a part of the pre-processing stage because we use it to filter the data to areas with weak wall influence.
+We close this section with a description of our receptive field features that are a flexible representation of the surroundings of the animals.
 
 \subsection{Experimental Setup \textit{\&} Input Data}
 \begin{marginfigure}
@@ -170,14 +171,18 @@ We then use the zero crossing of this smoothed acceleration to mark instances, w
 An example result for this method can be seen in figure~\ref{fig:smoothing}.
 One acceleration and gliding phase is then combined to form a kick.
 If an acceleration or gliding phase is shorter than a treshold \SI{0.08}{\s} the phase is merged with the previous one.
-% kick_columns = [ 'fish_id', 'heading_change', 'heading_change_acc', 'duration', 'gliding_duration', 'length', 'max_vel', 'end_vel']
-% social_columns = ['neighbor_distance', 'neighbor_angle', 'geometric_leader', 'viewing_angle_ltf', 'viewing_angle_ftl', 'rel_orientation',
-%                     'x_f0', 'y_f0', 'x_f1', 'y_f1', 'angle_f0', 'angle_f1']
-% wall_columns = [ f"wall_{type}{wall}_{id}" for id, type, wall in product( ['f0', 'f1'], ['distance', 'angle'],[0,1,2,3] )]
+This segmentation procedure results in c.a.\ 148000 kicks.
 
 We then extract the heading change, length, maximum velocity for each kick.
 Additionally, we extract the positions and angles of both fish and the distance and angles towards the wall for both fish for the kick and timesteps before it.
-We include this data for the timesteps \(0, 5, \ldots, 35 \).
+For our experiments we use time steps of \SI{0}{\s}, \SI{0.05}{s}, \ldots, \SI{0.35}{\s}, which goes back roughly one mean kick duration (figure~\ref{fig:kick-duration}).
+\begin{marginfigure}
+\includegraphics{kick_duration}
+\caption{Kernel density estimate of training kick duration.
+Dotted line is the mean duration at \SI{0.37}{\s}.}
+\label{fig:kick-duration}
+\end{marginfigure}
+
 
 \begin{marginfigure}
     \centering
@@ -191,7 +196,7 @@ We include this data for the timesteps \(0, 5, \ldots, 35 \).
 \draw [red,very thick] (3.0, 1.0) arc (-90:45:2);
 \node[rotate=45] at (3.8, 2.5) {\large$\delta\phi$};
 \end{tikzpicture} 
-\caption{Heading change}
+\caption{Heading change from grey heading to red heading.}
 \label{fig:goal}
 \end{marginfigure}
 
@@ -206,8 +211,8 @@ We follow a force-based modeling approach and describe the influence of a wall o
   \delta \phi_w (r_w, \theta_w) = f(r_w)O_w(\theta_w),
 \end{equation*}
 where $r_w$ corresponds to the distance to the wall and $\theta_w$ is the relative angle of the fish towars the wall~\autocite{calovi}.
+The relative angle is computed by subtracting the orientation of the fish from the orientation of the wall.
 We split the wall influence into an exponentially decaying force term \(f_w\) and an odd angular-response function \(O_w\)
-%todo: multiply by a constant
 \begin{align*}
   f(r_w) &= \exp \left( -{(r_w/l_w)}^2 \right), \\
   O(\theta_w) &= c \left(a_1 \sin(\theta_w) + a_2 \sin(2  \theta_w)  \right)  \left(1 +  b_1  \cos(\theta_w) + b_2 \cos(2  \theta_w) \right),
@@ -218,14 +223,27 @@ Note that we use a different series expansion for the odd angular function \(O_w
   The reason for this could be that they consider both a different species and a round wall.}
 Finally, we consider the closest two walls and sum over their influences
 \begin{equation*}
- \delta \phi_w^{\text{total}} \left( \bm{r_w}, \bm{\theta_w} \right) = \sum_{i \in 2 \text{ closest walls}} \delta \phi_w (r_w^i, \theta_w^i).
+ \delta \phi_w^{\text{total}} \left( \bm{r_w}, \bm{\theta_w} \right) = \sum_{\mathclap{i \in \, 2 \text{ closest walls}}} \delta \phi_w (r_w^i, \theta_w^i).
 \end{equation*}
+
+\begin{figure}[htb]
+ \centering
+ \includegraphics{wall_odd}~%
+ \includegraphics{wall_force} 
+ \caption{Our wall fit.
+   The force function is shown on the left, the exponentially decaying wall strength on the right.
+ Positions of fixed points are shown by dotted lines.}
+\label{fig:wall-fit}
+\end{figure}
+
 The parameters are fit by minimizing the mean-squared error of heading change prediction with the Levenberg-Marquardt algorithm using the implementation of \textbf{scipy}~\autocite{scipy}.
+Our proposed functional forms result in a rapidly decaying wall influence (figure~\ref{fig:wall-fit}).
 
 \subsection{Receptive Fields}
 We now explain the input features of our social models.
 From here on, we restrict our dataset to kicks where the wall influence is neglible.
 Practically, we drop all kicks where the value of \(f_w(r_w)\) is larger than $0.1$.
+This reduced the number of kicks in the training set to c.a.\ 19000.
 Our social model use a receptive field as their input~\autocite{discreteModes}.
 We construct this by rotating the coordinate system such that the fish we are considering is parallel to the x-axis and looking to the right.
 This corresponds to a heading of \ang{0}.
@@ -260,8 +278,9 @@ For the testing dataset the bins contain $474 \pm 139$ fish, again with zero emp
 \begin{figure}[htb]
   \includegraphics{rf_occupancy_test}
    \centering
-   \caption{Relative occupancy of bins from data-driven binning scheme on testing set.
-   The color corresponds to the number of fish in per bin.}
+   \caption{Number of fish in each bin obtained from data-driven binning scheme, evaluated on testing set.
+     The color corresponds to the number of fish in per bin.
+   The red cross marks the origin and thus the position of our focal fish.}
    \label{fig:occupancy}
 \end{figure}
 
@@ -301,7 +320,6 @@ This categorical feature is converted using one-hot-encoding to a feature vector
 We additionally use the standarized relative trajectory of the other fish multiplied with the aforementioned spatial feature%
 \marginnote{This can be generalized to multiple fish by interpreting the features as number of fish per bin and mean relative trajectory per bin.}.
 
-\FloatBarrier{}
 \section{Social Models}\label{sec:social}
 We are now ready to model the social behaviour of zebrafish.
 Note that the approaches developed here can all be easily extended to larger fish groups.
@@ -329,8 +347,8 @@ The linear model for a component \(i\) of our target vector \(\hat{\bm{y}}\) can
 \begin{equation*}
  \left( Y^i | \bm{\beta}^{i} \right)  \sim \mathcal{N} \left( \bm{X^i} \bm{\beta^i} + \text{ bias}, \sigma^2 \bm{I_{n \times p}}  \right),
 \end{equation*}
-where X is the design matrix.
-In the following discussion we will drop the superscript for the component and describe the computation for one vector component without loss of generality.
+where \(\bm{X^i}\) is the design matrix. \todo{mention weights, bias, identity matrix.}
+In the following discussion of the linear models we will drop the superscript for the component and describe the computation for one vector component without loss of generality.
 
 \subsection{Time dependence}
 \begin{marginfigure}
@@ -348,15 +366,23 @@ In the following discussion we will drop the superscript for the component and d
 \end{marginfigure}
 We now add a time-dependence to our model.
 To do this, we extract some time window before each kick.
-For our experiments we use time steps of \SI{0}{\s}, \SI{0.05}{s}, \ldots, \SI{0.35}{\s}, which goes back roughly to the beginning of the last kick.
 
 We consider two more models here.
-For the first one we simply concatenate all features \(\beta_{i, t}\) for all timesteps \(t\).
-This results in a very large number of parameters (\(\text{num. timesteps } \times \text{ num. bins}\)).
+For the first one we simply concatenate all features of the design matrix \(\bm{X_t}\) for all timesteps \(t\).
+This results in a very large number of parameters, consisting of one set of weights \(\bm{\beta_t}\) per timestep.
 
-Alternatively, we can use the same spatial weights for each bin (i.e\ \( \forall t_1, t_2: \beta_{i, t_1} = \beta_{i, t_2}\)).
-We then introduce a parameter \(c_t\) for each timestep and then use $c_t \beta_{i,t}$ as our parameters.
-For consistency, we normalize all \(c_t\) such that they sum to unity.
+Alternatively, we can use the same spatial weights for each timestep (i.e\ \( \forall t_1, t_2: \bm{\beta_{t_1}} = \bm{\beta_{t_2}}\)).
+We introduce a parameter \(c_t\) with one weight per timestep and then use $c_t \bm{\beta}$ as our parameters.
+For consistency, we normalize all \(c_t\) such that they are positive and sum to unity using the \textit{softmax} non-linearity
+\begin{equation}\label{eq:softmax}
+\operatorname{Softmax} (x_i) = \frac{\exp (x_i)}{\sum_j \exp (x_j)},
+\end{equation}
+where \(x_i\) is one component of the output vector.
+
+The prediction is then given by
+\begin{equation*}
+  \hat{y} = \sum_t c_t \bm{X_t} \bm{\beta} + \text{ bias}.
+\end{equation*}
 
 \subsection{Mixture Density Networks: Bi-modal distributions \textit{\&} non-linearity}
 As a final model we present a recurrent-neural network that predicts a full distribution for \(\left( \bm{y} | \bm{\beta} \right)\).
@@ -386,7 +412,6 @@ We describe two simple encoders:
   Firstly, this allows us to compare the time-dependent linear models and \textsc{rnn}-models directly.
   Secondly, we avoid the assumption that a fish only considers its surroundings in the timespan between two kicks.
   Note that we have assume that a kick is independent of the other kicks.
-  \todo{Fix equation, add text}
 \end{itemize}
 We did not observe significant better results using the rectifier linear unit activation function, in fact, it lead to divergence for the \textsc{rnn} model.
 Using more neurons in the hidden layer does not achieve better results here.
@@ -429,11 +454,8 @@ We then have to fulfil the following constraints:
   Using the fact that a matrix has an invertible Cholesky decomposition with positive diagonal elements iff.\ it is positive definite and Hermetian,
   the resulting matrix \(\bm{\Sigma_i}\) is a valid non-singular covariance matrix.
 \item The mixing coefficients need to be positive and have to sum to one.
-  This is achieved by using the \textit{softmax} non-linearity
-  \begin{equation*}
-    \operatorname{Softmax} (x_i) = \frac{\exp (x_i)}{\sum_j \exp (x_j)},
-  \end{equation*}
-  where \(x_i\) is one component of the output vector.
+  This is achieved by using the \textit{softmax} (equation~\ref{eq:softmax}) non-linearity.
+
 \end{itemize}
 All other parameters can have arbitrary values.
 We predict the Gaussian mixture parameters each by computing a linear transformation of the hidden state of the encoder followed by the appropiate non-linearity.
@@ -463,13 +485,13 @@ To rectify this we follow common advice and apply the \textit{log-sum-exp-trick}
 to compute the sum in equation~\ref{eq:nll}\autocite{mdnMaster}.
 
 \section{Implementation \textit{\&} Training Details}
-The linear model without memory and the one with concatenated features were trained with the \texit{RidgeCV} estimator from \textbf{scikit-learn}\autocite{scikitLearn}.
+The linear model without memory and the one with concatenated features were trained with the \textit{RidgeCV} estimator from \textbf{scikit-learn}\autocite{scikitLearn}.
 This implementation uses generalized-cross-validation over the training set to determine the best parameter for the regularization strength.
 
 %The linear model with identical spatial weights was implemented in \textbf{PyTorch} and optimized with the \textsc{L-BGFS} optimizer until convergence~\autocite{pytorch}.
 The linear model with static spatial weights and all neural network models were implemented in \textbf{PyTorch}.
 The number of components for the \textsc{mdn}-networks was is set to 5.
-We use stochastic gradient descent with an initial learning rate of 0.01 and a weight decay of 0.001 to optimize our networks.
+We use stochastic gradient descent with an initial learning rate of 0.1 and a weight decay of 0.0001 to optimize our networks.
 We apply a Nesterov momentum of 0.9.
 Encoders and decoders are jointly trained.
 We clip gradients such that they have a maximum absolute value of 100 for stability of training.
@@ -501,6 +523,7 @@ Mean & 0.398 & 0.375 \\
 }
 \label{tab:results-wall}
 \end{margintable}
+
 We start by comparing the angle prediction from the wall model against the baseline of always predicting the mean angle.
 Evaluating these predictions with the mean-squared-error (\textsc{mse}) or similar metrics is not meaningful because they do not take the cyclical nature of angles into account.
 For example, a prediction of \ang{360} for an angle of \ang{0} would be perfect but would incur a large \textsc{mse}-loss.
@@ -511,7 +534,6 @@ We can compute the mean of a vector of angles \(\bm{\alpha}\) with
  \operatorname{Mean-Angle}(\bm{\alpha}) = \operatorname{arctan2} \left( \sum_i \sin \left( \alpha_i \right),  \sum_i \cos \left( \alpha_i \right)  \right).
 \end{equation*}
 One possible way of defining an error over angles is
-\todo{check this definition for correctness!}
 \begin{equation}\label{eq:angle-error}
  \operatorname{Angle-Error}(\bm{\alpha}, \bm{\beta}) = \operatorname{Mean} \left( \operatorname{arccos} \left(  \cos  (\bm{\alpha} - \bm{\beta})  \right) \right).
 \end{equation}
@@ -525,30 +547,32 @@ As mentioned in section~\ref{sec:social}, both datasets are restricted to situat
 This comparison captures the whole predictive distribution and not only the mean prediction.
 In this way we take the uncertainty of the predictions into account.
 Note that it is not straight-forward to use more complicated methods such as log-likelihood ratios or the Akaike information criterion because we cannot estimate the number of degrees of freedoms for penalized recurrent neural network models.
-The results for the social models can be seen in table~\ref{tab:results-social}.
 
+The best \textsc{nll}-error was achieved by the \textsc{mlp-mdn} and \textsc{rnn-mlp} on the training and testing set respectively (table~\ref{tab:results-social}).
+Interestingly, both methods have the best \textsc{mse}, even though we include models that were explicitely trained on the \textsc{mse}.
+The linear models all had larger errors for all considered metrics but did not perform significantly worse.
 
 \begin{table}[htb]
 \centering
 \caption{Results for all social models on training and testing datasets.
   Linear models are linear without time, linear with entire sequence concatened as features, linear with static spatial weights.
-  Angle-\{Train/Test\} refers to equation~\ref{eq:angle-error}.
   Best results are bold.
 }
 
 \label{tab:results-social}
-\begin{tabular}{@{}lS[table-format=2.2]S[table-format=2.2]S[table-format=2.2]S[table-format=2.3]@{}}
+\begin{tabular}{@{}lS[table-format=1.2]S[table-format=1.2]S[table-format=1.3]S[table-format=1.3]@{}}
 \toprule
-{Model} & {\textsc{nll}-train} & {\textsc{nll}-test} & {Angle-train} & {Angle-test} \\ \midrule
-Linear (w/o time) & $\infty$ & 1.00 & 0.00 & 0.979 \\
-Linear (time conc.) & $\infty$ & 1.00 & 0.00 & 0.979 \\
-Linear (const.\ spatial) & $\infty$ & 1.00 & 0.00 & 0.979 \\
-\textsc{Mlp-Mdn} & $\infty$ & 1.00 & 0.00 & 0.979 \\
-\textsc{Rnn-Mdn} & $\infty$ & 1.00 & 0.00 & 0.979 \\
+{Model} & {\textsc{nll}-train} & {\textsc{nll}-test} & {\textsc{Mse}-train} & {\textsc{Mse}-test} \\ \midrule
+Linear (w/o time) & 2.08 & 1.90 & 0.472 & 0.388 \\
+Linear (time conc.) & 2.06 & $\infty$ & 0.459 & 0.385 \\
+Linear (const.\ spatial) & 2.08 & 1.91 & 0.467 & 0.391 \\
+\textsc{Mlp-Mdn} & 1.71 & \bftabnum 1.63 & 0.464 & \bftabnum 0.384 \\
+\textsc{Rnn-Mdn} & \bftabnum 1.61 & 1.71 & \bftabnum 0.454 & \bftabnum 0.384 \\
+\textsc{Mlp-Mse} & 2.08 & 1.90 & 0.468 & 0.388 \\
+\textsc{Rnn-Mse} & 2.04 & $\infty$ & 0.449 & 0.392 \\
 \bottomrule\\
 \end{tabular}
 \end{table}
-
 
 
 \section{Conclusion \textit{\&} Future Work}
