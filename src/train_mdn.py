@@ -13,37 +13,13 @@ from torch.utils import data
 from util import add_angles, angle_between, angled_vector, sub_angles
 from mdn_model.mixture_loss import *
 from mdn_model.models import *
-
-class LSTMDataset(data.Dataset):
-    def __init__(self, X, y):
-        super(data.Dataset, self).__init__
-        
-        self.X = X
-        self.y = y
-        
-    def __len__(self):
-        return self.X.shape[1]
-    
-    def __getitem__(self, idx):
-        return self.X[:, idx,:], self.y[idx,:]
-
-def collate(batch):
-    result = []
-    Xs = []
-    ys = []
-    for elem in batch:
-        X = elem[0]
-        y = elem[1]
-        Xs.append(X)
-        ys.append(y)
-    return torch.stack(Xs, dim=1), torch.stack(ys, dim=0)
+from data import LSTMDataset, collate, get_data
 
 def save_checkpoint(model, optimizer, epoch, filename):
     state = {'epoch': epoch + 1,
              'model': model.state_dict(),
              'optim': optimizer.state_dict()}
     torch.save(state, filename)
-    
 
 def main():
     # Set up command line arguments.
@@ -54,8 +30,8 @@ def main():
                         help="Set name for checkpoint.")
 
     # ---------------------- Model settings ---------------------------------------
-    parser.add_argument('--encoder', type=str, default='mlp', choices=['mlp', 'rnn'],
-                        help="Set encoder architecture. Default: rnn")
+    parser.add_argument('--encoder', type=str, default='mlp', choices=['mlp', 'rnn', 'static'],
+                        help="Set encoder architecture. Static corresponds to linear model with static temportal weights. Default: rnn")
     parser.add_argument('--decoder', type=str, default='mdn', choices=['mdn', 'mse'],
                         help="Set decoder architecture and corresponding loss. Default: mdn")
     parser.add_argument('--hidden-size', type=int, default=64,
@@ -72,8 +48,6 @@ def main():
                         help="Set by how much the lr should be multiplied after each epoch. Default: 0.99")
     parser.add_argument('--weight-decay', type=float, default=1e-4,
                         help="Set weight decay. Default: 1e-4")
-    #parser.add_argument('--dropout', type=float, default=0.5,
-    #                    help="Set dropout probability for encoder (Hidden-To-Hidden). Default: 0.5")
 
     args = parser.parse_args()
     print("Called with args={}".format(args))
@@ -92,47 +66,9 @@ def main():
     print(f"Using device: {device} for training.")
 
     print("Loading data...")
-    # Load data.
-    df_train = pd.read_csv( '../data/processed/rf_train.csv')
-    df_test = pd.read_csv( '../data/processed/rf_test.csv')
-
-    # Massage data:
-    # Put dt column last for both dfs.
-    # Otherwise reshaping will have weird results.
-    cols = list(df_train.columns)
-    cols.remove('dt')
-    df_train = df_train[cols + ['dt']]
-    df_test = df_test[cols + ['dt']]
-
-    y_labels = ['y_0', 'y_1']
-    y_train_np = df_train.loc[df_train['dt'] == 0, y_labels].values
-    y_test_np = df_test.loc[df_train['dt'] == 0, y_labels].values
-
-    n_dts = len(np.unique(df_train['dt']))
-    n_features = df_train.shape[1] - 3# # minus rows dt, y_0, y_1
-
-    X_train_np = df_train.drop(labels=y_labels + ['dt'], axis=1).values
-    X_test_np = df_test.drop(labels=y_labels + ['dt'], axis=1).values
-
-    # Reshape from (dts*kicks, features) to (kicks, dts, n_features)
-    X_train_np = X_train_np.reshape(X_train_np.shape[0]//n_dts, n_dts, n_features)
-    X_test_np = X_test_np.reshape(X_test_np.shape[0]//n_dts, n_dts, n_features)
-
-    # Transpose to (dts, kicks, features)
-    X_train_np = X_train_np.transpose(1,0, 2)
-    X_test_np = X_test_np.transpose(1,0, 2)
-
-    # Reverse order of timesteps s.t. dt=0 is last
-    X_train_np = X_train_np[::-1,:,:].copy()
-    X_test_np = X_test_np[::-1,:,:].copy()
-
-    # To Tensors
-    X_train = torch.from_numpy(X_train_np).float()
-    y_train = torch.from_numpy(y_train_np).float()
-
-    X_test = torch.from_numpy(X_test_np).float()
-    y_test = torch.from_numpy(y_test_np).float()
-
+    X_train, y_train, X_test, y_test = get_data(dir='../data/processed/')
+    n_features = X_train.shape[2]
+    
     # Set up data loader.
     train_data = LSTMDataset(X_train, y_train)
 
@@ -149,12 +85,12 @@ def main():
     covariance_type = args.covariance_type
 
     n_hidden = args.hidden_size
-    #encoder = RNNEncoder(n_features=n_features, n_hidden=n_hidden, n_layers=1)
 
     if args.encoder == 'rnn':
         encoder = RNNEncoder(n_features=n_features, n_hidden=n_hidden)
     else:
         encoder = MLPEncoder(n_features=n_features, n_hidden=n_hidden)
+
     if args.decoder == 'mdn':
         decoder = MDNDecoder(n_hidden=n_hidden, n_components=args.n_components, covariance_type=covariance_type, covariance_reg=1e-6)
         criterion = MixtureLoss(covariance_type=covariance_type).to(device)
@@ -162,12 +98,17 @@ def main():
         decoder = NormalDecoder(n_hidden=n_hidden)
         criterion = nn.MSELoss().to(device) 
 
-    model = ReceptiveFieldNN(encoder=encoder, decoder=decoder).to(device)
+    if args.encoder == 'static':
+        model = StaticSpatialLinearEncoder(n_features=n_features, n_dts=X_train.shape[0]).to(device)
+        print("Warning: Using static spatial linear encoder, using no explicit decoder!")
+        assert(args.decoder == 'mse')
+    else:
+        model = ReceptiveFieldNN(encoder=encoder, decoder=decoder).to(device)
     print(model)
 
-    #ptimizer = optim.Adam(params)
-    #scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=1)
     optimizer = optim.SGD(model.parameters(), weight_decay=args.weight_decay, lr=args.lr, momentum=0.9, nesterov=True)
+    # Adam might be a better choice for more complex models and larger data, SGD works well for our model/data.
+    #ptimizer = optim.Adam(model.parameters())
     scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=args.lr_decay)
 
     # Training loop
@@ -181,7 +122,7 @@ def main():
             optimizer.zero_grad()
 
             out = model(x)
-            if isinstance(model.decoder, MDNDecoder):
+            if isinstance(criterion, MixtureLoss):
                 pi, sigma, mu = out
                 loss = criterion(pi, sigma, mu, y)
             else:
@@ -199,11 +140,16 @@ def main():
         if (epoch % 20) == 0 or epoch == args.epochs:
             model.eval()
             print(f'{epoch}: \nLR = {optimizer.param_groups[0]["lr"]}')
-            print(loss_sum.item()/loss_norm)
-            if isinstance(model.decoder, MDNDecoder):
+            print(f'Train loss over epoch: {loss_sum.item()/loss_norm}')
+
+            if isinstance(criterion, MixtureLoss):
                 with torch.no_grad():
-                    print(criterion(*model(X_train.to(device)), y_train.to(device)), '\n', 
-                    criterion(*model(X_test.to(device)), y_test.to(device)))
+                    print('(Eval) Train: ', criterion(*model(X_train.to(device)), y_train.to(device)).item(), '\nTest: ', 
+                          criterion(*model(X_test.to(device)), y_test.to(device)).item())
+            else:
+                with torch.no_grad():
+                    print('(Eval) Train: ', criterion(model(X_train.to(device)), y_train.to(device)).item(), '\nTest: ', 
+                          criterion(model(X_test.to(device)), y_test.to(device)).item())
 
         # Save checkpoint every few epochs.
         if (epoch % 100) == 0 or epoch == args.epochs:

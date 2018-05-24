@@ -25,6 +25,45 @@ class MLPEncoder(nn.Module):
          
         return hidden 
  
+class DropoutRNN(nn.Module):
+    def __init__(self, input_size, hidden_size, dropout_p=0.5):
+        super().__init__()
+        self.input_size = input_size
+        self.hidden_size = hidden_size
+        self.i2h = nn.Linear(in_features=input_size,
+                            out_features=hidden_size)
+        self.h2h = nn.Linear(in_features=hidden_size,
+                            out_features=hidden_size,
+                            bias=False)
+        self.tanh = nn.Tanh()
+        self.dropout_p = dropout_p
+        
+    def forward(self, x, h0=None):
+        seq_len = x.shape[0]
+        batch_size = x.shape[1]
+        
+        # Initialize hidden state
+        if h0 is not None:
+            hidden = h0
+        else:
+            hidden = x.new_ones(1, batch_size, self.hidden_size)
+        
+        # Sample dropout mask for hidden-to-hidden connection.
+        if self.training:
+            dropout = torch.bernoulli(torch.ones_like(hidden) * self.dropout_p).cuda()
+        
+        for i in range(seq_len):
+            input_res = self.i2h(x[i,:,:])
+            if self.training:
+                hidden = dropout * hidden
+            else:
+                hidden = (1-self.dropout_p) * hidden
+            hidden_res = self.h2h(hidden)
+            hidden = self.tanh(input_res + hidden_res)
+         
+        # Conform to interface of nn.GRU but only return valid last hidden state.
+        return None, hidden
+
 class RNNEncoder(nn.Module):
     def __init__(self, n_features, n_hidden, n_layers=1):
         super().__init__()
@@ -34,39 +73,52 @@ class RNNEncoder(nn.Module):
         
         # Inital hidden state for one element of batch is learned parameter.
         self.init_hidden = nn.Parameter(torch.randn(self.n_layers,1,n_hidden/self.n_layers))
-        
-        # First preprocess with one linear layer.
-        preprocess = nn.Linear(in_features=n_features,
-                              out_features=n_hidden)
-        relu = nn.ReLU(inplace=True)
-        dropout = nn.Dropout()
-        
-        rnn = nn.GRU(input_size=n_hidden,
-                                   hidden_size=n_hidden//n_layers,
-                                   num_layers=n_layers)
-        
-        self.in_to_hidden = nn.ModuleList([
-            preprocess, relu, dropout, rnn, dropout])
+                
+        self.rnn = DropoutRNN(input_size=n_features,
+                         hidden_size=n_hidden)
+        # For larger sequences you should try using GRU/LSTM!
+        # For our purpose they just overfit.
         
         for p in self.parameters():
-            if isinstance(p, nn.GRU) or isinstance(p, nn.Linear):
+            if isinstance(p, nn.Linear):
                 # Note: Correct initialization is important; otherwise might not converge!
-                nn.init.normal_(p, mean=0, std=0.02)
+                nn.init.normal_(p, mean=0, std=0.001)
+                if p.bias is not None:
+                    p.bias.data.fill_(0.0)
 
     def forward(self, x, batch_size):
         # Expand initial hidden state
         init_hidden = self.init_hidden.expand(self.n_layers, batch_size, self.n_hidden/self.n_layers).contiguous()
         
-        for m in self.in_to_hidden:
-            if isinstance(m, nn.GRU):
-                # Assumes that we only have one GRU layer!
-                _, x = m(x, init_hidden)
-                x = x.view(-1, self.n_hidden)
-            else:
-                # Other preprocessing layers.
-                x = m(x)               
-
+        _, x = self.rnn(x, init_hidden)
         return x
+
+class StaticSpatialLinearEncoder(nn.Module):
+    def __init__(self, n_features, n_dts):
+        super().__init__()
+        # Treat each timestep as independent feature!
+        out_size = 2
+        self.n_features = n_features
+        # Prior to seeing any data, assume that all timesteps are equally important.
+        self.dt_weights = nn.Parameter(data=torch.ones(n_dts)/n_dts)
+        
+        self.linear = nn.Linear(in_features=self.n_features,
+                                out_features=out_size)
+        
+        for m in self.modules():
+            if isinstance(m, nn.Linear):
+                nn.init.normal_(m.weight.data, std=0.001) # todo
+                m.bias.data.fill_(0.0)
+        
+    def forward(self, x):
+        # Normalize dt_weights s.t. they are >= 0 and sum to 1
+        dt_weights = nn.functional.softmax(self.dt_weights, dim=0) 
+    
+        # Shape: examples, n_dts, output (2)
+        x =  self.linear(x)
+
+        x = x.permute(1,2,0)
+        return (x * dt_weights).sum(dim=-1)
 
 # https://github.com/hardmaru/pytorch_notebooks/blob/master/mixture_density_networks.ipynb
 class MDNDecoder(nn.Module):
@@ -99,7 +151,9 @@ class MDNDecoder(nn.Module):
         
         for m in self.modules():
             if isinstance(m, nn.Linear):
-                nn.init.orthogonal_(m.weight, gain=5.0/3)
+                nn.init.normal_(m.weight, mean=0, std=0.001)
+                if m.bias is not None:
+                    m.bias.data.fill_(0)
 
 
     def forward(self, hidden, batch_size):
@@ -110,15 +164,15 @@ class MDNDecoder(nn.Module):
             # sigma: variances of components, need to be > 0
             # 10e-6 added for numerical stability
             sigma = self.z_sigma(hidden).view(batch_size, self.n_components, -1)
-            sigma = nn.functional.softplus(sigma) + self.covariance_reg
+            sigma = torch.exp(sigma) + self.covariance_reg
         else:
             sigma_ = self.z_sigma(hidden).view(batch_size, self.n_components, -1)
 
             # Take sqrt of regularisation, covariance matrix squares these values.
             # sigma0 and sigma2 (diagonals of Cholesky matrix) need to be strictly positive.
-            sigma0 = nn.functional.softplus(sigma_[:,:,0]) + self.covariance_reg**0.5
+            sigma0 = torch.exp(sigma_[:,:,0]) + self.covariance_reg**0.5
             sigma1 = sigma_[:,:,1] # can be arbitrary!
-            sigma2 = nn.functional.softplus(sigma_[:,:,2]) + self.covariance_reg**0.5
+            sigma2 = torch.exp(sigma_[:,:,2]) + self.covariance_reg**0.5
             sigma = torch.stack((sigma0, sigma1, sigma2), dim=-1)
         
         # mu: mean, can be arbitrary
@@ -145,4 +199,9 @@ class ReceptiveFieldNN(nn.Module):
     def forward(self, x):
         batch_size = x.shape[1]
         encoded = self.encoder(x, batch_size)
+        # Remove first dimension of RNN hidden state.
+        # Not doing this leads to errors in the NLL-Computation.
+        if len(encoded.shape) == 3:
+            assert(encoded.shape[0] == 1)
+            encoded = encoded.squeeze(0)
         return self.decoder(encoded, batch_size)
