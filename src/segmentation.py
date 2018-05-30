@@ -265,7 +265,6 @@ def summarise_kicks(pos, acc, status, dropped, time):
     gliding_duration = (end_times - events[:-1,1]) * dt
     events = np.vstack((events[:-1, 0].T, end_times.T, kick_duration.T, gliding_duration.T)).T
 
-
     # End times are beginning of new events
     while True:
         # Fuse short gliding phases with previous kick
@@ -320,7 +319,7 @@ def get_wall_influence(orientation, point, bounding_box):
 
 def calc_angles(kick, pos_0, pos_1, angles_0, angles_1, vel_0, bounding_box, valid, fish_mapping, verbose=False):
     x_axis = np.array([1, 0]) # Used as a common reference for angles.
-    dts = np.arange(start=0, stop=35, step=5)
+    dts = np.arange(start=0, stop=40, step=5)
 
     start, end, duration, gliding_duration = kick
     start, end = int(start), int(end)
