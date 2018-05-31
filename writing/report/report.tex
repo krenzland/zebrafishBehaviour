@@ -248,7 +248,7 @@ Our proposed functional forms result in a rapidly decaying wall influence (figur
 We now explain the input features of our social models.
 From here on, we restrict our dataset to kicks where the wall influence is negligible.
 Practically, we drop all kicks where the value of \(f_w(r_w)\) is larger than $0.1$ for any wall.
-This corresponds to a wall distance of c.a.\ \Si{4.8}{\cm}.
+This corresponds to a wall distance of c.a.\ \SI{4.8}{\cm}.
 The number of kicks in the training set is reduced by this to c.a.\ 19400.
 
 \todo{Note that fish swim near the wall most of the time. Maybe add density plot?}
@@ -260,14 +260,14 @@ We then shift the coordinate system such that our fish is at the center (figure~
 This is done for all timesteps.
 
 \begin{marginfigure}
- \includegraphics{receptive_field_before} 
- \includegraphics[scale=1]{receptive_field_after} 
+ \includegraphics{receptive_field_before_margin} 
+ \includegraphics[scale=1]{receptive_field_after_margin} 
  \caption{The receptive field transforms the situation depicted in the top image to the one in the bottom image.
  Note that the focal fish (red line) looks to the right and is at the origin.}
 \label{fig:rf}
 \end{marginfigure}
 
-We now shift our focus to the spatial discretization.
+We now shift our focus to the spatial discretization of all receptive fields (for all timesteps).
 The standard approach is to divide the space into a regular grid of bins with equal size.
 This approach has the disadvantage that some bins contain most of the kicks while others are nearly empty.
 One solution to lessen the impact of this problem is to introduce a cut-off range, after which the social forces are assumed to be negligible.
@@ -279,17 +279,18 @@ The algorithm to compute the bin edges is shown in algorithm~\ref{alg:binning}.
 We only show how to compute the bins for the training set, the bins for the testing set can be computed in the same manner but without recomputing the edges.
 
 \todo{Make clear that bins are for all variables, and not seperate for variables.}
-A regular grid with 64 bins covering all seen positions (i.e.\ the minimum and maximum $x$ and $y$ coordinates are included in the grid) s used as a baseline.
+\todo{Recompute bin mean/stds!}
+A regular grid with 64 bins covering all seen positions (i.e.\ the minimum and maximum $x$ and $y$ coordinates are included in the grid) is used as a baseline.
 This grid can be created by binning the space symmetrically (around 0) for the $x$ and $y$ coordinates separately,
 e.g.\ the grid spans the range $\left(  -\max(  \operatorname{abs}( x)) \ldots \max ( \operatorname{abs}( x)) \right)$ for the x-axis.
-Using this technique on our dataset results in a mean number of fish per bin of roughly \(2077\pm 7255\) (mean $\pm$ std.) for the training set and \(474 \pm 1645\) for the testing set.
+Using this technique on our dataset results in a mean number of fish per bin of roughly \(2428\pm 8483\) (mean $\pm$ std.) for the training set and \(555 \pm 1926\) for the testing set.
 In fact, 12 and 13 of the bins actually do not contain any fish at all for the training and testing set respectively!
-In contrast to that the bins of our proposed data-driven binning scheme contain $2077 \pm 179$ fish with zero empty bins for the training set.
-For the testing dataset the bins contain $474 \pm 139$ fish, again with zero empty bins (figure~\ref{fig:occupancy}).
+In contrast to that the bins of our proposed data-driven binning scheme contain $2428 \pm 212$ fish with zero empty bins for the training set.
+For the testing dataset the bins contain $555 \pm 162$ fish, again with zero empty bins (figure~\ref{fig:occupancy}).
 
 \todo{Add smaller plot showing grid without bins on the corners.}
 \begin{figure}[htb]
-  \includegraphics{rf_occupancy_test}
+  \includegraphics{rf_occupancy_test_paper}
    \centering
    \caption{Number of fish in each bin obtained from data-driven binning scheme, evaluated on testing set.
      The color corresponds to the number of fish in per bin.
@@ -425,7 +426,7 @@ We describe two simple encoders:
   During evaluation this operator scales the weights by a factor of 0.5.
   These two layers are added and transformed with a \textit{tanh} non-linearity
   \begin{equation*}
-    \bm{h_t} (\bm{x}) = \operatorname{tanh} \left( \bm{b} + \bm{w_{ih}} \bm{X_t} + \bm{w_{hh}} d (\bm{h^{i-1}}) \right),
+    \bm{h_t} (\bm{X}) = \operatorname{tanh} \left( \bm{b} + \bm{w_{ih}} \bm{X_t} + \bm{w_{hh}} d (\bm{h^{i-1}}) \right),
   \end{equation*}
   where \(\bm{w_{ih}}\) and \(\bm{w_{hh}}\) are the weights for the input-to-hidden and hidden-to-hidden layers respectively.
   In this equation $\bm{X_t}$ is a tensor containing the input features for the entire batch at timestep \(t\).
@@ -521,7 +522,7 @@ This implementation uses generalized-cross-validation over the training set to d
 
 The linear model with static spatial weights and all neural network models were implemented in \textbf{PyTorch}.
 The number of components for the \textsc{mdn}-networks was set to 5.\todo{Jacob marked this, why?}
-We use stochastic gradient descent with an initial learning rate of 0.1 and a weight decay of 0.0001 to optimize our networks.
+We use stochastic gradient descent with an initial learning rate of 0.1 and a weight decay of 0.001 to optimize our networks.
 We apply a Nesterov momentum of 0.9.
 Encoders and decoders are jointly trained.
 We clip gradients such that they have a maximum absolute value of 100 to increase the stability of training.
@@ -588,9 +589,7 @@ The linear models all had larger errors for all considered metrics but did not a
 \centering
 \caption{Results for all social models on training and testing datasets.
   Linear models are linear without time, linear with entire sequence concatenated as features and linear with static spatial weights.
-  Some models have a \textsc{nll} of \(\infty\).
-  This stems from numerical issues, the \textsc{nll} is not actually \(\infty\) but too large to be represented by floating point numbers.
-  The reason for this is predicting a wrong result with a very high certainty, i.e.\ with a variance that is too small.
+  The baseline model is always predicting the training mean trajectory. 
   Best results are bold.
 }
 
@@ -598,13 +597,15 @@ The linear models all had larger errors for all considered metrics but did not a
 \begin{tabular}{@{}lS[table-format=1.2]S[table-format=1.2]S[table-format=1.3]S[table-format=1.3]@{}}
 \toprule
 {Model} & {\textsc{nll}-train} & {\textsc{nll}-test} & {\textsc{Mse}-train} & {\textsc{Mse}-test} \\ \midrule
-Linear (w/o time) & 2.08 & 1.90 & 0.472 & 0.388 \\
-Linear (time conc.) & 2.06 & $\infty$ & 0.459 & 0.385 \\
-Linear (const.\ spatial) & 2.08 & 1.91 & 0.467 & 0.391 \\
-\textsc{Mlp-Mdn} & 1.71 & \bftabnum 1.63 & 0.464 & \bftabnum 0.384 \\
-\textsc{Rnn-Mdn} & \bftabnum 1.61 & 1.71 & \bftabnum 0.454 & \bftabnum 0.384 \\
-\textsc{Mlp-Mse} & 2.08 & 1.90 & 0.468 & 0.388 \\
-\textsc{Rnn-Mse} & 2.04 & $\infty$ & 0.449 & 0.392 \\
+Baseline (Train-Mean) & 2.25 & 2.01 & 0.558 & 0.423\\
+\textsc{Mlp-Mdn} & 1.63 & \bftabnum 1.60 & 0.448 & 0.373 \\
+\textsc{Rnn-Mdn} & \bftabnum 1.43 & 1.69 & 0.436 & \bftabnum 0.371 \\
+\textsc{Mlp-Mse} & 2.04 & 1.87 & 0.452 & 0.375 \\
+\textsc{Rnn-Mse} & 2.00 & 1.86 & \bftabnum 0.432 & 0.377 \\
+\midrule
+Linear (w/o time) & 2.04 & 1.87 & 0.451 & 0.376 \\
+Linear (time conc.) & 2.00 & 1.86 & 0.432 & 0.373 \\
+Linear (static spatial) & 2.04 & 1.86 & 0.451 & 0.374 \\
 \bottomrule\\
 \end{tabular}
 \end{table}
