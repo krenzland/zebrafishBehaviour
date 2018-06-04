@@ -34,9 +34,12 @@ def transform_coords_df(df, cutoff_wall_range):
         pos_f1 = (pos_f1 - pos_f0).reshape(2)
         pos_f0 = np.array([0,0])
 
+        # Adjust angle of other fish.
         angle_f1 = sub_angles(row['angle_f1'], rotation_angle)
 
+        # Trajectory f0 is the target variable, it's kick trajectory.
         trajectory_f0 = angled_vector(row['heading_change']) * row['length']
+        # Trajectory_f1 is the relative orientation of the other fish, encoded as unit vector.
         trajectory_f1 = angled_vector(angle_f1)
 
         row = pd.Series(data=[row['dt'], trajectory_f0[0], trajectory_f0[1], pos_f1[0], pos_f1[1], 
@@ -60,21 +63,24 @@ def transform_coords_df(df, cutoff_wall_range):
         wall_dist_col = [f'wall_distance{i}_f{id}' for i, id in product(range(0,4), range(0,2))]
         min_wall_dist = df[wall_dist_col].min(axis=1)
 
-        # Drop kick if fish was influenced by the wall at any point!
+        # Drop kick if fish were influenced by the wall at any point!
         groups_to_keep = np.unique(df.loc[(min_wall_dist > cutoff_wall_range),'group'])
         to_keep = df['group'].isin(groups_to_keep)   
         df = df.loc[to_keep,:]
         df.index = pd.Index(range(0, len(df))) # Fix index
 
-        # Drop unneded columns
+    # Drop unneded columns
     df = df[['dt', 'heading_change', 'x_f0', 'y_f0', 'x_f1', 'y_f1', 'angle_f0', 'angle_f1', 'length', 'group']]
    
     # Rotate coordinate system for each row.
     df = df.apply(transform_coords_row, axis=1)
     
     return df
-# Static ------------------------------------------------------------------------------------------------------
+
+# Static binning ----------------------------------------------------------------------------------------------
 def get_bins_static(df, num_bins=7, ignore_outliers=True):
+    """Computes bin edges for static bins.
+    Returns bins that are identical for both axes."""
     # Build symmetric receptive field.
     if ignore_outliers:
         lo_x, hi_x = np.percentile(a=df_train['x_f1'], q=[25,75])
@@ -92,27 +98,21 @@ def get_bins_static(df, num_bins=7, ignore_outliers=True):
     print(rf_size)
     
     # RF has size rf_size x rf_size, each direction divided by num_bins
-    # Should be of form 2n-1 (symmetric in pos/neg. direction, centered at (0,0))
-    #assert(((num_bins-1) % 2) == 0)
     
     b = np.linspace(rf_size, 0, num=num_bins//2, endpoint=False)
-    #b = np.array([rf_size/(i+1) for i in range(num_bins//2)])
     bins = np.hstack((-b,[0], b[::-1]))
     
     return bins
 
-def digitize_df_static(df, bins, closed_interval=True):
-    # TODO: Open intervals on both sides!
+def digitize_df_static(df, bins, num_bins, closed_interval=True):
+    """Returns the bin id for each fish in dataframe df."""
     bin_x = np.digitize(df['x_f1'], bins=bins) - 1
     bin_y = np.digitize(df['y_f1'], bins=bins) - 1
     
-    print('Before clipping', bin_x.min(), bin_y.min(), bin_x.max(), bin_y.max())
     # Clip to range
     bin_x = bin_x.clip(0, num_bins-1)
     bin_y = bin_y.clip(0, num_bins-1)
-    print('After clipping', bin_x.min(), bin_y.min(), bin_x.max(), bin_y.max())
 
-    print(bin_x.min(), bin_x.max(), bin_y.max())
     
     bin = (bin_x*num_bins) + bin_y
     if closed_interval:
@@ -125,10 +125,10 @@ def digitize_df_static(df, bins, closed_interval=True):
 
 # Adaptive ----------------------------------------------------------------------------------------------------
 def bin_one_dim(array, num_bins):
-# Inspired by np.array_split
-# https://github.com/numpy/numpy/blob/v1.14.0/numpy/lib/shape_base.py#L431-L483
-# Divide into equal bins, if not possible first few bins have size + 1
-    
+    """Divide array into num_bins with equal number of data points."""
+    # Inspired by np.array_split
+    # https://github.com/numpy/numpy/blob/v1.14.0/numpy/lib/shape_base.py#L431-L483
+    # Divide into equal bins, if not possible first few bins have size + 1
     a = np.sort(array)
     assert(np.signbit(a[0]) == np.signbit(a[-1]))
     num_per_bin, extras = divmod(len(a), num_bins)
@@ -143,8 +143,8 @@ def bin_one_dim(array, num_bins):
         bin_edges[0] = 0.0
     return bin_edges
 
-# Try without symmetry
 def bin_axis(array, num_bins):
+    """Compute bin edges for negative and positive part seperately."""
     assert(num_bins % 2 == 0)
     #num_bins += 1
     dist_pos = array[array >= 0]
@@ -160,6 +160,8 @@ def bin_axis(array, num_bins):
     return edges
 
 def bin_df(df, num_bins=6):
+    """Compute bins for entire dataframe.
+    Returns seperate bins for x and y axis."""
     edges_x = bin_axis(df['x_f1'].values, num_bins)
     bins_x = np.digitize(df['x_f1'].values, edges_x, right=False) - 1
     #bins_y = np.zeros_like(bins_x) - 1 # invalid bins for now!
@@ -175,6 +177,7 @@ def bin_df(df, num_bins=6):
     return edges_x, edges_y
 
 def get_bins_df(df, edges_x, edges_y, num_bins):
+    """Compute bin id for each fish in dataframe df."""
     bins_x = np.digitize(df['x_f1'].values, edges_x, right=False) - 1
     bins_x = bins_x.clip(0, len(edges_x) - 2) # todo
     bins_y = np.zeros_like(bins_x) - 1 # invalid bins for now!
@@ -196,6 +199,7 @@ def get_bins_df(df, edges_x, edges_y, num_bins):
     return df
 
 def get_Xy(df, num_bins, means, stds):
+    """Converts dataframe into feature and target arrays."""
     # Now we need to one-hot enccode our data.
     # We need one column per variable and bin
 
@@ -218,16 +222,18 @@ def get_Xy(df, num_bins, means, stds):
     dts =  df['dt'].values.reshape(-1, 1)
 
     X = np.concatenate((dts, position_one_hot, direction_f0_x, direction_f0_y), axis=1)
-    #X = position_one_hot.values
     y = np.vstack((df['trajectory_f0_x'].values.T, df['trajectory_f0_y'].values.T)).T
     return X, y
 
 def save_csv(X, y, file_name=None):
+    """Saves X-y arrays as csv file."""
     processed_df = Xy_to_df(X,y)
+    print(processed_df.shape)
     processed_df.to_csv(file_name, index=None)
 
 
 def Xy_to_df(X,y):
+    """Converts X-y arrays to a dataframe."""
     num_dts = X.shape[0]//y.shape[0]
     y = np.repeat(y, num_dts, axis=0)
     processed_df = pd.DataFrame(np.vstack((X.T, y.T)).T)
@@ -252,7 +258,8 @@ def main():
     df_train = transform_coords_df(df_kicks_tr.copy(), cutoff_wall_range=cutoff_wall_range)
     df_test = transform_coords_df(df_kicks_te.copy(), cutoff_wall_range=cutoff_wall_range) 
     print("Computed relative coordinates.")
-
+    print(df_test.shape[0])
+    
     num_bins = 8
     edges_x, edges_y = bin_df(df_train, num_bins=num_bins)
 
@@ -267,15 +274,19 @@ def main():
     df_train = get_bins_df(df_train, **edges)
     df_test = get_bins_df(df_test, **edges) 
     print("Computed spatial discretization")
+    print(df_test.shape[0])
     
+    # Compute means/stds of features, later needed for simulation!
     means = df_train['trajectory_f1_x'].mean(), df_train['trajectory_f1_y'].mean()
     stds = df_train['trajectory_f1_x'].std(), df_train['trajectory_f1_y'].std()
     print(means, stds)
 
     print(df_train.columns)
+    # Compute data and target arrays.
     X_np, y_np = get_Xy(df_train, num_bins=num_bins, means=means, stds=stds)
     X_np_test, y_np_test = get_Xy(df_test, num_bins=num_bins, means=means, stds=stds)
 
+    # Target data only needed for kick-off time in our formulation.
     y_np =  y_np[df_train['dt'] == 0] # heading change at kick
     y_np_test =  y_np_test[df_test['dt'] == 0] # heading change at kick
 
