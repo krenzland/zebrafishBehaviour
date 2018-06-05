@@ -7,22 +7,11 @@ from matplotlib import animation
 from util import add_angles, angled_vector, clip_angle, unit_vector
 from segmentation import get_wall_influence
 
-class KickModel:
-    def __init__(self, peak_speed_model, kick_duration_model, velocity_decay_time):
-        self.peak_speed_model = peak_speed_model
-        self.kick_duration_model = kick_duration_model
-        self.velocity_decay_time = velocity_decay_time
-    
-    def get_peak_speed(self):
-        return self.peak_speed_model.sample()[0][0,0]
-    
-    def get_kick_duration(self):
-        return self.kick_duration_model.sample()[0][0,0]
-    
-    def get_velocity_decay_time(self):
-        return self.velocity_decay_time
-
 class WallModel:
+    """This is an implementation of the wall model of Calovi et al. disentangling...
+    https://doi.org/10.1371/journal.pcbi.1005933
+    We support different expansion for the odd function.
+    """
     angular_map = {'calovi': lambda angle, p1: np.sin(angle) * (1 + p1 * np.cos(2*angle)),
                    'sin': lambda angle, p1, p2, p3: p1 * np.sin(angle) + p2 * np.sin( 2 * angle ) + p3 * np.sin( 3* angle),
                    'sin-cos': lambda angle, a1, a2, b1, b2 : (a1 * np.sin(angle) + a2 * np.sin(2*angle)) * \
@@ -47,41 +36,54 @@ class WallModel:
         self.set_params(self.params)
     
     def evaluate_raw(self, xdata, *params):
+        """Evaluate model with xdata, where xdata is an array with entries [wall_distance * 4, wall_angle * 4].
+        """
         self.set_params(np.array(params))
         return self.__call__(xdata[0:4], xdata[4:])
     
     def set_params(self, params):
+        """Set params from a vector. This is needed for scipy's curvefit function.
+        The first entry is a constant multiplicator, the second the decay term and the rest are parameters of the odd function."""
         self.params = params
         self.wall_force = lambda dist: self._wall_force(dist, params[1])
         self.wall_repulsion = lambda angle: self._wall_repulsion(angle, *params[2:])
         self.scale = params[0]
         
     def __call__(self, radius, angle):
-        # Sum over all four walls.
-        # Take only closest 2 walls!
+        """Return predicted heading change for radius radius and angle angle."""
+        # Only consider the two closest walls.
         num = 2
         idx_rows = np.argsort(radius, axis=0)[:num, :]
         idx_cols = np.arange(radius.shape[1])[None, :]
         radius = radius[idx_rows, idx_cols]
         angle = angle[idx_rows, idx_cols] 
+
+        # Same parameters are used for all four walls.
         return np.sum(self.scale * self.wall_force(radius) * self.wall_repulsion(angle), axis=0)
 
 def even_fun(angle, *weights):
+    """Cos series for even functions."""
     result = 1.0
     for i, weight in enumerate(weights):
         result += weight * np.cos((i+1) * angle)
     return result
 
 def odd_fun(angle, *weights):
+    """Sin series for odd functions."""
     result = 0.0
     for i, weight in enumerate(weights):
         result += weight * np.sin((i+1) * angle)
     return result
 
 class SocialModel:
+    """This is an implementation of the social model of Calovi et al. disentangling...
+    https://doi.org/10.1371/journal.pcbi.1005933
+    paper.
+    """
     def __init__(self, num_fourier=2):
         self.num_fourier = num_fourier
-        # TODO: Find better initial values.
+        # Note: If you intend on using this model. you probably should change
+        # or randomize the initial parameters.
         params = np.hstack((np.array([0.3, 2.0,1.0]), np.array([1.0] * 3),
                             np.zeros(num_fourier * 4)))
         # Raw functions
@@ -118,147 +120,3 @@ class SocialModel:
     def _get_params_slice(self, num_fun):
         offset = 6 + num_fun * self.num_fourier
         return self.params[offset:offset+self.num_fourier]
- 
-class Calovi:
-    def __init__(self, kick_model, wall_model, social_model):
-        # TODO: Use correct bbox, for now this is good enough probably.
-        self.bounding_box = (0, 30, 0, 30)
-
-        self.position = np.array([5.0, 5.0])
-        self.heading = 0 # radians
-        self.time = 0
-        self.time_after_kick = 0.0
-        self.end_position = self.position
-
-        self.wall_distances, self.wall_angles = 0, 0
-        self.neigh_distance, self.neigh_viewing_angle, self.neigh_relative_angle = 0, 0, 0
-
-        self.kick_model = kick_model
-        self.wall_model = wall_model
-        self.social_model = social_model
-
-    def predict(self, wall_distances, wall_angles, neigh_distance, neigh_viewing_angle, neigh_relative_angle):
-        heading_strength = 1.02 # radians, TODO: Find a better estimate, this one is very noisy!
-        gaussian = np.random.normal(loc=0.0, scale=1.0)
-
-        wall_heading = self.wall_model(wall_distances.reshape(-1, 1), wall_angles.reshape(-1, 1))[0]
-        social_heading = self.social_model(neigh_distance, neigh_viewing_angle, neigh_relative_angle)
-        
-        alpha = 2.0/3.0 # Controls random movement strength near wall, value from Calovi not our data!
-        wall_force = np.max(self.wall_model.wall_force(wall_distances)) # Strongest wall influence
-        random_heading = heading_strength * ( 1- alpha * wall_force) * gaussian
-        
-        heading_change = random_heading + wall_heading + social_heading
-
-        return clip_angle(heading_change)
-
-    def get_heading_change(self):
-        return self.predict(self.wall_distances, self.wall_angles, self.neigh_distance, self.neigh_viewing_angle, self.neigh_relative_angle)
-
-    def is_inside_arena(self, position):
-        x_min, x_max, y_min, y_max = self.bounding_box
-        return x_min < position[0] < x_max and \
-               y_min < position[1] < y_max
-    
-    def update_environment(self):
-        self.wall_distances, self.wall_angles = get_wall_influence(self.heading, self.position,
-                                                                   self.bounding_box)
-    
-    def kick(self):
-        # First we need to update all distances angles.
-        self.update_environment()
-        
-        peak_speed = self.kick_model.get_peak_speed()
-        self.kick_duration = self.kick_model.get_kick_duration()
-        self.velocity_decay_time = self.kick_model.get_velocity_decay_time()
-
-        self.kick_length = peak_speed * self.velocity_decay_time * \
-                      (1 - np.exp(-self.kick_duration/self.velocity_decay_time))
-        self.position_before_kick = self.position
-        self.time_before_kick = self.time
-        self.time_after_kick = self.time_before_kick + self.kick_duration
-
-        MAX_TRIALS = 1000
-        is_valid_kick = False
-        trials = 0
-        while not is_valid_kick:
-            trials += 1
-            # If our model gets stuck, we need a large, random angle change.
-            if trials > MAX_TRIALS:
-                print("MAX TRIALS reached! Changing to uniform heading!")
-                heading_change = np.random.uniform(low=-np.pi, high=np.pi)
-            else:
-                heading_change = self.get_heading_change()
-            self.heading = add_angles(self.heading, heading_change)
-            self.end_position = self.position + self.kick_length * angled_vector(self.heading) 
-            is_valid_kick = self.is_inside_arena(self.end_position)
-        
-    def step(self, time):
-        assert(time > self.time)
-        if self.time_after_kick <= time:
-            # First advance to end of current kick.
-            self.position = self.end_position
-            time = self.time_after_kick
-            self.time = time
-            # Then calculate new kick.
-            self.kick()
-            # Then move in direction of the new kick.
-
-        time_diff = time - self.time_before_kick
-        # We interpolate between the old and new position.
-        drag_coeff = (1 - np.exp(-time_diff/self.velocity_decay_time)) / \
-                    (1 - np.exp(-self.kick_duration/self.velocity_decay_time))
-        new_position = self.position_before_kick + \
-                       self.kick_length * drag_coeff * angled_vector(self.heading) 
-        self.position = new_position
-        self.time = time
-        return time, self.heading, self.position
-    
-def add_to_buffer(buffer, value):
-    buffer_local = np.roll(buffer, shift=-1)
-    buffer_local[-1] = value
-    np.copyto(dst=buffer, src=buffer_local)
-    return buffer
-
-def animate(model, n_frames, filename):
-     # Set up initial values for animation.
-    fig = plt.figure(figsize=(10,10))
-    ax = plt.axes(xlim=(0, 30), ylim=(0, 30))
-    lines0, = ax.plot([], [], c='red', linewidth=5, label='our fish')
-    ax.legend(loc='upper right')
-
-    # Set up animation buffers.
-    visible_steps = 10
-    past_x0 = np.zeros(visible_steps) + 5
-    past_y0 = np.zeros(visible_steps) + 5
-
-    def init():
-        lines0.set_data([], [])
-        return lines0, 
-
-    def animate(i):
-        _, _, (x0, y0) = model.step((i+1) * 0.1)
-
-        add_to_buffer(past_x0, x0)
-        add_to_buffer(past_y0, y0)
-
-        lines0.set_data(past_x0, past_y0)
-
-        return lines0,
-
-    anim = animation.FuncAnimation(fig, animate, init_func=init,
-                                   frames=n_frames, interval=100, blit=True)
-    anim.save(filename)
-
-def main():
-    with open('calovi_kick.model', 'rb') as f:
-        kick_model = pickle.load(f)
-    with open('calovi_wall.model', 'rb') as f:
-        wall_model = pickle.load(f)
-    with open('calovi_social.model', 'rb') as f:
-        social_model = pickle.load(f)
-    model = Calovi(kick_model=kick_model, wall_model=wall_model, social_model=social_model)
-    animate(model, 1000, 'wall_animation.mp4')
-
-if __name__ == '__main__':
-    main()
