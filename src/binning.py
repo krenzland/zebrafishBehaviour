@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 import numpy as np
 from itertools import product
 import dill as pickle
@@ -10,14 +11,14 @@ from calovi import WallModel
 from scipy import optimize as opt
 
 def wall_neglible_at(wall_model, threshold=0.1):
-    """Finds minimal wall distance s.t. wall force is smaller than threshold."""
+    """Find minimal wall distance s.t. wall force is smaller than threshold."""
     def f(x):
         return wall_model.wall_force(x) - threshold
     return opt.brentq(f, a=0, b=30)
 
 
 def transform_coords_df(df, cutoff_wall_range):
-    """Rotates coordinate system s.t. fish zero is at (0,0) and looking to the right.
+    """Rotate coordinate system s.t. fish zero is at (0,0) and looking to the right.
        Drops kicks close to the wall."""
     def transform_coords_row(row):
         rotation_angle = row['angle_f0']
@@ -79,7 +80,7 @@ def transform_coords_df(df, cutoff_wall_range):
 
 # Static binning ----------------------------------------------------------------------------------------------
 def get_bins_static(df, num_bins=7, ignore_outliers=True):
-    """Computes bin edges for static bins.
+    """Compute bin edges for static bins.
     Returns bins that are identical for both axes."""
     # Build symmetric receptive field.
     if ignore_outliers:
@@ -105,7 +106,7 @@ def get_bins_static(df, num_bins=7, ignore_outliers=True):
     return bins
 
 def digitize_df_static(df, bins, num_bins, closed_interval=True):
-    """Returns the bin id for each fish in dataframe df."""
+    """Return the bin id for each fish in dataframe df."""
     bin_x = np.digitize(df['x_f1'], bins=bins) - 1
     bin_y = np.digitize(df['y_f1'], bins=bins) - 1
     
@@ -199,7 +200,7 @@ def get_bins_df(df, edges_x, edges_y, num_bins):
     return df
 
 def get_Xy(df, num_bins, means, stds):
-    """Converts dataframe into feature and target arrays."""
+    """Convert dataframe into feature and target arrays."""
     # Now we need to one-hot enccode our data.
     # We need one column per variable and bin
 

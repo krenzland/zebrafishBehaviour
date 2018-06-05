@@ -189,7 +189,9 @@ We use the zero crossing of the smoothed acceleration to mark instances where th
 One acceleration and gliding phase is then combined to form a kick.
 If an acceleration or gliding phase is shorter than a threshold of \SI{0.08}{\s} the phase is merged with the previous one.
 This segmentation procedure results in c.a.\ 148000 kicks.
-We use the first 20\% of the first 5 and the last 20\% of the other 5 experiments as testing set; all other data are used for training.
+%We use the first 20\% of the first 5 and the last 20\% of the other 5 experiments as testing set; all other data are used for training.
+We use the first 80\% of each experiment for training, the rest is used as testing set.
+\todo{Rephrase this}
 
 We then extract the heading change, length and duration for each kick.
 Additionally, we extract the positions and angles of both fish and their distance and angles towards the wall.

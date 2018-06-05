@@ -11,10 +11,9 @@ import sklearn.model_selection as cv
 
 from util import unit_vector, angle_between, angled_vector, sub_angles, add_angles
 
-# ----- Util ------
-
 # ----- Loading ------
 def load_and_join(csv_path0, csv_path1):
+    """Load csvs containing data for one fish each and joins them."""
     df_fish0 = pd.read_csv(csv_path0, index_col='frame')
     df_fish1 = pd.read_csv(csv_path1, index_col='frame')
 
@@ -34,9 +33,9 @@ def load_and_join(csv_path0, csv_path1):
     return df_total
 
 def fix_time(df):
-    # Chage time so that it is equally spaced.
-    # Some frames are marked as invalid, those have to be dropped for kicks.
-
+    """ Change time in dataframe df so that it is equally spaced.
+    Some frames are marked as invalid, those have to be dropped for kicks.
+    """
     THRESHOLD = 0.005 # time differences smaller than this are ignored.
     dt = 0.01 # difference between two consecutive frames
     time = df['time']
@@ -78,6 +77,7 @@ def fix_time(df):
     return df
 
 def clean_dataset(df, drop_inf=True):
+    """Remove invalid entries from dataframe df."""
     # Drop duplicate columns
     df = df.drop(['time_f1'], axis=1)
     df = df.rename(columns={'time_f0': 'time'})
@@ -91,26 +91,24 @@ def clean_dataset(df, drop_inf=True):
     return df
 
 def add_velocity(df):
-   print(df.columns)
-   for fish_id in [0,1]:
-       dx_dt = np.gradient(df[f'x_f{fish_id}'], 0.01)
-       dy_dt = np.gradient(df[f'y_f{fish_id}'], 0.01)
-       velocity = (dx_dt**2 + dy_dt**2) ** 0.5
-       print(velocity)
-       print(f"Velocity has 0 #times: {(1.0 * (velocity < 0.0)).sum()}")
-       df.loc[:, f'speed_f{fish_id}'] = pd.Series(velocity, index=df.index)
+    """Compute velocity colum."""
+    print(df.columns)
+    for fish_id in [0,1]:
+        dx_dt = np.gradient(df[f'x_f{fish_id}'], 0.01)
+        dy_dt = np.gradient(df[f'y_f{fish_id}'], 0.01)
+        velocity = (dx_dt**2 + dy_dt**2) ** 0.5
+        print(velocity)
+        print(f"Velocity has 0 #times: {(1.0 * (velocity < 0.0)).sum()}")
+        df.loc[:, f'speed_f{fish_id}'] = pd.Series(velocity, index=df.index)
 
-   df = df.dropna()
-   df.index = range(0, len(df))
-   df = fix_time(df.copy())
-   return df
+    df = df.dropna()
+    df.index = range(0, len(df))
+    df = fix_time(df.copy())
+    return df
 
 # ----- Smoothing and resampling -----
-# Sometimes we have datasets with dropped frames.
-# We interpolate the values for them to decrease problems with smoothing later.
-# This isn't mathematically elegant but not important because those frames aren't
-# considered for kicks anyway!
 def interpolate_col(data, time, dropped):
+    """Drop dropped entries from data and interpolate."""
     valid_times = time[~dropped]
     invalid_times = time[dropped]
     
@@ -124,12 +122,17 @@ def interpolate_col(data, time, dropped):
     return pd.Series(data, index)
 
 def interpolate_invalid(df):
+    """
+    Sometimes we have datasets with dropped frames.
+    We interpolate the values for them to decrease problems with smoothing later.
+    This isn't mathematically elegant but not important because those frames aren't
+    considered for kicks anyway!
+    """
     # Save columns. Otherwise we loose information about dropped frames!
     time = np.copy(df['time'].values)
     dropped = np.copy(df['dropped'].values)
     
     # Resample invalid entries.
-    #df = df.apply((lambda col: interpolate_col(col, df['time'].values, df['dropped'].values)), axis=0)
     df = df.fillna(method='bfill')
 
     # Restore columns.
@@ -138,14 +141,17 @@ def interpolate_invalid(df):
     return df
 
 def smooth_vector(x, window_length=15):
+    """Smooth a vector with a Savgol filter."""
     degree = 3
     
+    # These parameters work best for our dataset, might need some finetuning.
     x = signal.savgol_filter(x, window_length=window_length, polyorder=degree, mode='constant', deriv=0)
     x_deriv = signal.savgol_filter(x, window_length=window_length, polyorder=degree, mode='constant', delta=0.01, deriv=1)
 
     return x, x_deriv
 
 def smooth_dataset(df):
+    """Smooth the velocity column of the dataframe df."""
     window_length = 21
 
     # Mark window surrounding each dropped frame as dropped as well.
@@ -170,16 +176,11 @@ def smooth_dataset(df):
     df.loc[:, 'acceleration_smooth_f0'] = pd.Series(acc_smooth0, index=df.index)
     df.loc[:, 'acceleration_smooth_f1'] = pd.Series(acc_smooth1, index=df.index)
 
-    print('\n#Of f0 and f1 are negative:')
-    print((1.0*(df['speed_smooth_f0'] < 0.0)).sum())
-    print((1.0*(df['speed_smooth_f1'] < 0.0)).sum())
-
     return df
 
-# ---- Activity selection -----
-
 @jit(nopython=False)
-def get_status(vel0, vel1, time, treshold):
+def get_status(vel0, vel1, time, threshold):
+    """Compute status (swimming/pausing/stopping) for velocity series vel0/vel1."""
     # The constants are used internally to speed up computation.
     SWIMMING = 0
     PAUSING = 1
@@ -193,7 +194,7 @@ def get_status(vel0, vel1, time, treshold):
     # Forward pass: Find out how long fish have been pausing
     cur_time_paused = 0
     for i in range(0, len(vel_max)):
-        if vel_max[i] >= treshold:
+        if vel_max[i] >= threshold:
             # Swimming
             cur_time_paused = 0
         else:
@@ -229,11 +230,12 @@ def get_status(vel0, vel1, time, treshold):
                     
     return time_paused, pretty_status
 
-def add_status(df, treshold):
+def add_status(df, threshold):
+    """Add status (swimming/pausing/stopping) to dataframe df with swimming threshold threshold."""
     vel0 = df['speed_smooth_f0'].values
     vel1 = df['speed_smooth_f1'].values
     time = df['time'].values
-    _time_paused, status = get_status(vel0, vel1, time, treshold)
+    _time_paused, status = get_status(vel0, vel1, time, threshold)
     df.loc[:, 'status'] = pd.Series(status, index=df.index)
     return df
 
@@ -301,6 +303,8 @@ def summarise_kicks(pos, acc, status, dropped, time):
 
 # ---- Angles -----
 def get_wall_influence(orientation, point, bounding_box):
+    """Computes the wall distances and angles for a fish with orientation orientation at coordinates point.
+    Distances with regards to bounding box of entire arena."""
     # Bounding box here is xMin, xMax, yMin, yMax
     xMin, xMax, yMin, yMax = bounding_box
     # We have 4 walls, wall_0/2 on the x-axis and wall_1/3 on the y-axis.
@@ -318,6 +322,7 @@ def get_wall_influence(orientation, point, bounding_box):
     return distances, relative_angles
 
 def calc_angles(kick, pos_0, pos_1, angles_0, angles_1, vel_0, bounding_box, valid, fish_mapping, verbose=False):
+    """Extracts features for a single kick and some timesteps before."""
     x_axis = np.array([1, 0]) # Used as a common reference for angles.
     dts = np.arange(start=0, stop=40, step=5)
 
@@ -379,7 +384,7 @@ def calc_angles(kick, pos_0, pos_1, angles_0, angles_1, vel_0, bounding_box, val
             viewing_angle_leader, viewing_angle_follower = viewing_angle_1t0, viewing_angle_0t1
 
         # Receptive field model needs positions and angles of both fish
-        rf_information = np.hstack((pos_f0, pos_f1, np.array([angles_0[start -dt], angles_1[start-dt]])))   
+        rf_information = np.hstack((pos_f0, pos_f1, np.array([angles_0[start - dt], angles_1[start - dt]])))   
 
         social_information = np.array([ dist_norm, dist_angle, geometric_leader, viewing_angle_leader, viewing_angle_follower, rel_orientation ])
         social_information = np.hstack((social_information, rf_information))
@@ -397,6 +402,7 @@ def calc_angles(kick, pos_0, pos_1, angles_0, angles_1, vel_0, bounding_box, val
 
 # ---- Putting it all together -----
 def calc_angles_df(df, fish_names, bounding_box):
+    """Compute kicks and their features for entire dataframe df."""
     pos0 = (df['x_f0'], df['y_f0'])
     pos1 = (df['x_f1'], df['y_f1'])
     acc_smooth0 = df['acceleration_smooth_f0'].values
@@ -474,10 +480,8 @@ def main():
         print(f"Computed bounding box {bounding_box}.")
 
         # Perform train test-split here:
-        # Take first 80% for half of data, final 80% for other half to avoid bias.
+        # Take first 80% of data for training, the other 20% are testing.
         iterator = list(zip(cv.train_test_split(full_df, train_size=0.8, test_size=0.2, shuffle=False), ['train', 'test'])) 
-        if i > (len(csv_paths)//2 - 1):
-            iterator = iterator[::-1]
         for df, subset_name in iterator:
             # Fix index of dataframe (corrupted by splitting.)
             df.index = range(0, len(df))
@@ -491,12 +495,10 @@ def main():
             print(f"Dropped frames: {((df['dropped'] == True)*1.0).sum()}.")
 
             print("Found active and passive swimming phases.")
-            #print(f"The data-frame has the following columns now:{df.columns}")
 
             df_kicks = calc_angles_df(df, fish_id, bounding_box)
 
             print("Calculated angles.")
-            #print(f"The kicks_df has the following columns now:{df_kicks.columns}")
 
             dfs_cleaned[subset_name].append(df.copy())
             print(f"Len cleaned = {len(df)}")
