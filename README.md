@@ -24,17 +24,19 @@ The files fit_wall.py, train_linear.py and train_mdn.py are used to fit the mode
 Object oriented interfaces are contained in calovi.py (wall model) and social_models.py (social models).
 
 - src/notebooks/
-contain Jupyter notebooks that are used to create figures, contain explorative data analysis and evaluation of models
+contain Jupyter notebooks that are used to create figures, contain explorative data analysis and evaluation of models.
+Additionally, there is a notebook that can be used to create an animation that shows the social models.
 
 - src/mdn_model
 contains a small library for the neural networks, written in pytorch.
-This incldues the models and loss functions.
+This includes the models and loss functions.
 
 - data/
 is an empty folder that is used to hold the (non-open) data.
 The directory raw contains the raw data and the directory processed contains the processed data.
 
 - models/
+contains all trained models, including the discretization, the wall model and various social models.
 
 
 # Reproducing my results.
