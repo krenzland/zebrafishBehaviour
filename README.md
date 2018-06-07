@@ -49,7 +49,6 @@ You might need to adjust these parameters for new data.
 To follow the segmentation procedure, look at the main method - every step is split into functions and it should be easy to follow the algorithms.
 
 3. Run the script src/fit_wall.py to fit a force-based wall model.
-TODO!
 
 4. Run the script src/binning.py to extract the receptive field data.
 Again, follow the main method.
